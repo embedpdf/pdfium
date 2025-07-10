@@ -1145,6 +1145,18 @@ EPDFAnnot_GetBorderDashPattern(FPDF_ANNOTATION annot,
                                float* dash_array,
                                unsigned long count);
 
+// Experimental EmbedPDF Extension API.
+// Generates or regenerates the appearance stream for a given annotation
+// using PDFium's internal AP generation engine. This is the most reliable way
+// to create a standard-compliant appearance after modifying an annotation's
+// properties like color, quads, etc.
+//
+//   annot  - handle to an annotation.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GenerateAppearance(FPDF_ANNOTATION annot);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

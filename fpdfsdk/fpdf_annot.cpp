@@ -2037,3 +2037,29 @@ EPDFAnnot_GetBorderStyle(FPDF_ANNOTATION annot, float* width) {
   if (width) *width = 0;
   return FPDF_ANNOT_BS_UNKNOWN;
 }
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GenerateAppearance(FPDF_ANNOTATION annot) {
+  CPDF_AnnotContext* pContext = CPDFAnnotContextFromFPDFAnnotation(annot);
+  if (!pContext) {
+    return false;
+  }
+
+  RetainPtr<CPDF_Dictionary> pAnnotDict = pContext->GetMutableAnnotDict();
+  if (!pAnnotDict) {
+    return false;
+  }
+
+  // CPDF_GenerateAP needs the document, which we can get from the page context.
+  CPDF_Document* pDoc = pContext->GetPage()->GetDocument();
+  if (!pDoc) {
+    return false;
+  }
+
+  // Get the annotation subtype to pass to the generator.
+  const CPDF_Annot::Subtype subtype = CPDF_Annot::StringToAnnotSubtype(
+      pAnnotDict->GetNameFor(pdfium::annotation::kSubtype));
+
+  // This is the key: call the internal AP generator.
+  return CPDF_GenerateAP::GenerateAnnotAP(pDoc, pAnnotDict.Get(), subtype);
+}
