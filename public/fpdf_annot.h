@@ -97,6 +97,16 @@ typedef enum FPDFANNOT_COLORTYPE {
   FPDFANNOT_COLORTYPE_InteriorColor
 } FPDFANNOT_COLORTYPE;
 
+typedef enum FPDF_ANNOT_BORDER_STYLE {
+    FPDF_ANNOT_BS_UNKNOWN = 0,
+    FPDF_ANNOT_BS_SOLID,
+    FPDF_ANNOT_BS_DASHED,
+    FPDF_ANNOT_BS_BEVELED,
+    FPDF_ANNOT_BS_INSET,
+    FPDF_ANNOT_BS_UNDERLINE,
+    FPDF_ANNOT_BS_CLOUDY
+} FPDF_ANNOT_BORDER_STYLE;
+
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
 // Currently supported subtypes:
@@ -1039,6 +1049,101 @@ FPDFAnnot_GetFileAttachment(FPDF_ANNOTATION annot);
 // Returns a handle to the new attachment object, or NULL on failure.
 FPDF_EXPORT FPDF_ATTACHMENT FPDF_CALLCONV
 FPDFAnnot_AddFileAttachment(FPDF_ANNOTATION annot, FPDF_WIDESTRING name);
+
+
+// Experimental EmbedPDF Extension API.
+// Get the color of an annotation. If no color is specified, default to yellow
+// for highlight annotation, black for all else.
+//
+//   annot    - handle to an annotation.
+//   type     - type of the color requested.
+//   R, G, B  - buffer to hold the RGB value of the color. Ranges from 0 to 255.
+//   A        - buffer to hold the opacity. Ranges from 0 to 255.
+//
+// Returns true if successful.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
+                                                       FPDFANNOT_COLORTYPE type,
+                                                       unsigned int* R,
+                                                       unsigned int* G,
+                                                       unsigned int* B,
+                                                       unsigned int* A);
+
+// Experimental EmbedPDF Extension API.
+// Set the color of an annotation.
+//
+//   annot    - handle to an annotation.
+//   type     - type of the color to be set.
+//   R, G, B  - buffer to hold the RGB value of the color. Ranges from 0 to 255.
+//   A        - buffer to hold the opacity. Ranges from 0 to 255.
+//
+// Returns true if successful.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
+                                                       FPDFANNOT_COLORTYPE type,
+                                                       unsigned int R,
+                                                       unsigned int G,
+                                                       unsigned int B,
+                                                       unsigned int A);
+
+// Experimental EmbedPDF Extension API.
+// Get the border style and width of an annotation. This function handles both
+// the modern /BS dictionary and the legacy /Border array.
+//
+//   annot  - handle to an annotation.
+//   width  - receives the border width; can be NULL.
+//
+// Returns the border style enum.
+FPDF_EXPORT FPDF_ANNOT_BORDER_STYLE FPDF_CALLCONV
+EPDFAnnot_GetBorderStyle(FPDF_ANNOTATION annot, float* width);
+
+// Experimental EmbedPDF Extension API.
+// Get the intensity of a cloudy border effect.
+//
+//   annot     - handle to an annotation.
+//   intensity - receives the effect intensity, typically 1 or 2.
+//
+// Returns true if the annotation has a cloudy border effect, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetBorderEffect(FPDF_ANNOTATION annot, float* intensity);
+
+// Experimental EmbedPDF Extension API.
+// Get the rectangle differences (used for rounded corners or cloudy border
+// padding) for a square or circle annotation.
+//
+//   annot         - handle to a square or circle annotation.
+//   left, top,    - receive the difference values for each side.
+//   right, bottom
+//
+// Returns true if the annotation has an /RD entry, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetRectangleDifferences(FPDF_ANNOTATION annot,
+                                  float* left,
+                                  float* top,
+                                  float* right,
+                                  float* bottom);
+
+// Experimental EmbedPDF Extension API.
+// Get the number of entries in the dash pattern for a dashed border.
+//
+//   annot  - handle to an annotation.
+//
+// Returns the number of entries in the dash pattern array, or 0 if the border
+// is not dashed or has no pattern.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetBorderDashPatternCount(FPDF_ANNOTATION annot);
+
+// Experimental EmbedPDF Extension API.
+// Get the dash pattern for a dashed border.
+//
+//   annot      - handle to an annotation.
+//   dash_array - a buffer to receive the dash pattern values.
+//   count      - the number of entries in the buffer, obtained from
+//                EPDFAnnot_GetBorderDashPatternCount().
+//
+// Returns true if the dash pattern was successfully retrieved, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetBorderDashPattern(FPDF_ANNOTATION annot,
+                               float* dash_array,
+                               unsigned long count);
 
 #ifdef __cplusplus
 }  // extern "C"

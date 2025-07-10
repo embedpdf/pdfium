@@ -455,6 +455,18 @@ ByteString CPDF_Annot::AnnotSubtypeToString(CPDF_Annot::Subtype nSubtype) {
 }
 
 // static
+CPDF_Annot::BorderStyle CPDF_Annot::StringToBorderStyle(
+    const ByteString& sStyle) {
+  if (sStyle == "S") return CPDF_Annot::BorderStyle::kSolid;
+  if (sStyle == "D") return CPDF_Annot::BorderStyle::kDashed;
+  if (sStyle == "B") return CPDF_Annot::BorderStyle::kBeveled;
+  if (sStyle == "I") return CPDF_Annot::BorderStyle::kInset;
+  if (sStyle == "U") return CPDF_Annot::BorderStyle::kUnderline;
+  if (sStyle == "C") return CPDF_Annot::BorderStyle::kCloudy; // Often in /BE dict
+  return CPDF_Annot::BorderStyle::kUnknown;
+}
+
+// static
 size_t CPDF_Annot::QuadPointCount(const CPDF_Array* pArray) {
   return pArray->size() / 8;
 }

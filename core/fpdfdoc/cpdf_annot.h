@@ -64,6 +64,17 @@ class CPDF_Annot {
     REDACT
   };
 
+  enum class BorderStyle {
+    kUnknown = 0,
+    kSolid,
+    kDashed,
+    kBeveled,
+    kInset,
+    kUnderline,
+    kCloudy
+  };
+
+  static BorderStyle StringToBorderStyle(const ByteString& sStyle);
   static Subtype StringToAnnotSubtype(const ByteString& sSubtype);
   static ByteString AnnotSubtypeToString(Subtype nSubtype);
   static CFX_FloatRect RectFromQuadPointsArray(const CPDF_Array* pArray,

@@ -182,6 +182,30 @@ static_assert(static_cast<int>(CPDF_AAction::kCalculate) ==
                   FPDF_ANNOT_AACTION_CALCULATE,
               "CPDF_AAction::kCalculate value mismatch");
 
+// These checks ensure the consistency of annotation border style values
+// across core/ and public.
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kSolid) ==
+                  FPDF_ANNOT_BS_SOLID,
+              "CPDF_Annot::BorderStyle::kSolid value mismatch");
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kDashed) ==
+                  FPDF_ANNOT_BS_DASHED,
+              "CPDF_Annot::BorderStyle::kDashed value mismatch");
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kBeveled) ==
+                  FPDF_ANNOT_BS_BEVELED,
+              "CPDF_Annot::BorderStyle::kBeveled value mismatch");
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kInset) ==
+                  FPDF_ANNOT_BS_INSET,
+              "CPDF_Annot::BorderStyle::kInset value mismatch");
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kUnderline) ==
+                  FPDF_ANNOT_BS_UNDERLINE,
+              "CPDF_Annot::BorderStyle::kUnderline value mismatch");
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kCloudy) ==
+                  FPDF_ANNOT_BS_CLOUDY,
+              "CPDF_Annot::BorderStyle::kCloudy value mismatch");
+static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kUnknown) ==
+                  FPDF_ANNOT_BS_UNKNOWN,
+              "CPDF_Annot::BorderStyle::kUnknown value mismatch");
+
 bool HasAPStream(CPDF_Dictionary* pAnnotDict) {
   return !!GetAnnotAP(pAnnotDict, CPDF_Annot::AppearanceMode::kNormal);
 }
@@ -1772,4 +1796,244 @@ FPDFAnnot_AddFileAttachment(FPDF_ANNOTATION annot, FPDF_WIDESTRING name) {
 
   annot_dict->SetNewFor<CPDF_Reference>("FS", doc, fs_obj->GetObjNum());
   return FPDFAttachmentFromCPDFObject(fs_obj);
+}
+
+// EmbedPDF Extension: Set the color of an annotation. Possible even if the appearance stream is already defined.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
+                                                       FPDFANNOT_COLORTYPE type,
+                                                       unsigned int R,
+                                                       unsigned int G,
+                                                       unsigned int B,
+                                                       unsigned int A) {
+  RetainPtr<CPDF_Dictionary> pAnnotDict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+
+  if (!pAnnotDict || R > 255 || G > 255 || B > 255 || A > 255) {
+    return false;
+  }
+
+  // Set the opacity of the annotation.
+  pAnnotDict->SetNewFor<CPDF_Number>("CA", A / 255.f);
+
+  // Set the color of the annotation.
+  ByteStringView key = type == FPDFANNOT_COLORTYPE_InteriorColor ? "IC" : "C";
+  RetainPtr<CPDF_Array> pColor = pAnnotDict->GetMutableArrayFor(key);
+  if (pColor) {
+    pColor->Clear();
+  } else {
+    pColor = pAnnotDict->SetNewFor<CPDF_Array>(ByteString(key));
+  }
+
+  pColor->AppendNew<CPDF_Number>(R / 255.f);
+  pColor->AppendNew<CPDF_Number>(G / 255.f);
+  pColor->AppendNew<CPDF_Number>(B / 255.f);
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
+                                                       FPDFANNOT_COLORTYPE type,
+                                                       unsigned int* R,
+                                                       unsigned int* G,
+                                                       unsigned int* B,
+                                                       unsigned int* A) {
+  RetainPtr<CPDF_Dictionary> pAnnotDict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+
+  if (!pAnnotDict || !R || !G || !B || !A) {
+    return false;
+  }
+
+  RetainPtr<const CPDF_Array> pColor = pAnnotDict->GetArrayFor(
+      type == FPDFANNOT_COLORTYPE_InteriorColor ? "IC" : "C");
+  *A = (pAnnotDict->KeyExist("CA") ? pAnnotDict->GetFloatFor("CA") : 1) * 255.f;
+  if (!pColor) {
+    // Use default color. The default colors must be consistent with the ones
+    // used to generate AP. See calls to GetColorStringWithDefault() in
+    // CPDF_GenerateAP::Generate*AP().
+    if (pAnnotDict->GetNameFor(pdfium::annotation::kSubtype) == "Highlight") {
+      *R = 255;
+      *G = 255;
+      *B = 0;
+    } else {
+      *R = 0;
+      *G = 0;
+      *B = 0;
+    }
+    return true;
+  }
+
+  CFX_Color color = fpdfdoc::CFXColorFromArray(*pColor);
+  switch (color.nColorType) {
+    case CFX_Color::Type::kRGB:
+      *R = color.fColor1 * 255.f;
+      *G = color.fColor2 * 255.f;
+      *B = color.fColor3 * 255.f;
+      break;
+    case CFX_Color::Type::kGray:
+      *R = 255.f * color.fColor1;
+      *G = 255.f * color.fColor1;
+      *B = 255.f * color.fColor1;
+      break;
+    case CFX_Color::Type::kCMYK:
+      *R = 255.f * (1 - color.fColor1) * (1 - color.fColor4);
+      *G = 255.f * (1 - color.fColor2) * (1 - color.fColor4);
+      *B = 255.f * (1 - color.fColor3) * (1 - color.fColor4);
+      break;
+    case CFX_Color::Type::kTransparent:
+      *R = 0;
+      *G = 0;
+      *B = 0;
+      break;
+  }
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetBorderEffect(FPDF_ANNOTATION annot, float* intensity) {
+  if (!intensity) {
+    return false;
+  }
+
+  const CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict) {
+    return false;
+  }
+
+  // The Border Effect is defined in the /BE dictionary.
+  RetainPtr<const CPDF_Dictionary> pBEDict = pAnnotDict->GetDictFor("BE");
+  if (!pBEDict) {
+    // No /BE dictionary means no special effect.
+    return false;
+  }
+
+  // The style must be 'Cloudy' for the intensity to be meaningful.
+  if (pBEDict->GetNameFor("S") != "C") {
+      return false;
+  }
+
+  // The intensity is in the /I key. Default is 1 if not present.
+  if (pBEDict->KeyExist("I")) {
+    *intensity = pBEDict->GetFloatFor("I");
+  } else {
+    *intensity = 1.0f; // Default intensity for cloudy border
+  }
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetRectangleDifferences(FPDF_ANNOTATION annot,
+                                  float* left,
+                                  float* top,
+                                  float* right,
+                                  float* bottom) {
+  if (!left || !top || !right || !bottom) {
+    return false;
+  }
+
+  // RD is only valid for Square and Circle annotations.
+  FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
+  if (subtype != FPDF_ANNOT_SQUARE && subtype != FPDF_ANNOT_CIRCLE) {
+    return false;
+  }
+
+  const CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict) {
+    return false;
+  }
+
+  // Retrieve the /RD array from the annotation dictionary.
+  RetainPtr<const CPDF_Array> pRDArray = pAnnotDict->GetArrayFor("RD");
+  if (!pRDArray || pRDArray->size() < 4) {
+    // If the array doesn't exist or is incomplete, there are no differences.
+    *left = 0;
+    *top = 0;
+    *right = 0;
+    *bottom = 0;
+    return false;
+  }
+
+  // Populate the output parameters with values from the array.
+  *left = pRDArray->GetFloatAt(0);
+  *top = pRDArray->GetFloatAt(1);
+  *right = pRDArray->GetFloatAt(2);
+  *bottom = pRDArray->GetFloatAt(3);
+
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetBorderDashPatternCount(FPDF_ANNOTATION annot) {
+  const CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict) {
+    return 0;
+  }
+
+  // The dash pattern is inside the /BS dictionary.
+  RetainPtr<const CPDF_Dictionary> pBSDict = pAnnotDict->GetDictFor("BS");
+  if (!pBSDict) {
+    return 0;
+  }
+  
+  // The border style must be dashed.
+  if (pBSDict->GetNameFor("S") != "D") {
+      return 0;
+  }
+
+  // The dash pattern is defined by the /D array.
+  RetainPtr<const CPDF_Array> pDashArray = pBSDict->GetArrayFor("D");
+  if (!pDashArray) {
+    return 0;
+  }
+
+  return pDashArray->size();
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetBorderDashPattern(FPDF_ANNOTATION annot,
+                               float* dash_array,
+                               unsigned long count) {
+  const CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict || !dash_array) {
+    return false;
+  }
+
+  RetainPtr<const CPDF_Dictionary> pBSDict = pAnnotDict->GetDictFor("BS");
+  if (!pBSDict || pBSDict->GetNameFor("S") != "D") {
+    return false;
+  }
+
+  RetainPtr<const CPDF_Array> pDashArray = pBSDict->GetArrayFor("D");
+  if (!pDashArray || pDashArray->size() < count) {
+    return false;
+  }
+
+  for (unsigned long i = 0; i < count; ++i) {
+    dash_array[i] = pDashArray->GetFloatAt(i);
+  }
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_ANNOT_BORDER_STYLE FPDF_CALLCONV
+EPDFAnnot_GetBorderStyle(FPDF_ANNOTATION annot, float* width) {
+  const CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict) {
+    if (width) *width = 0;
+    return FPDF_ANNOT_BS_UNKNOWN;
+  }
+
+  RetainPtr<const CPDF_Dictionary> pBSDict = pAnnotDict->GetDictFor("BS");
+  if (pBSDict) {
+    if (width) {
+      *width = pBSDict->KeyExist("W") ? pBSDict->GetFloatFor("W") : 1.0f;
+    }
+    // Use our new internal helper function and cast the result
+    return static_cast<FPDF_ANNOT_BORDER_STYLE>(
+        CPDF_Annot::StringToBorderStyle(pBSDict->GetNameFor("S")));
+  }
+  
+  if (width) *width = 0;
+  return FPDF_ANNOT_BS_UNKNOWN;
 }
