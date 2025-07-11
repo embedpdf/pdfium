@@ -1428,6 +1428,25 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_GetXFAPacketContent(
     unsigned long buflen,
     unsigned long* out_buflen);
 
+// Experimental EmbedPDF Extension API.
+// Renders the appearance stream of a single annotation to a bitmap.
+//
+//   bitmap -  Destination bitmap handle.
+//   page   - Page that owns the annotation.
+//   annot  - Annotation handle obtained from any FPDFAnnot_* API.
+//   matrix - Matrix to transform the annotation
+//   flags  - Flags to control the rendering
+//   mode - One of `FPDF_ANNOT_APPEAR_*` above.
+//
+// Returns true if the rendering was successful, false otherwise.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RenderAnnotBitmap(FPDF_BITMAP bitmap,
+                       FPDF_PAGE page,
+                       FPDF_ANNOTATION annot,
+                       FPDF_ANNOT_APPEARANCEMODE appearanceMode,
+                       const FS_MATRIX* matrix,
+                       int flags);
+
 #ifdef PDF_ENABLE_V8
 // Function: FPDF_GetRecommendedV8Flags
 //          Returns a space-separated string of command line flags that are

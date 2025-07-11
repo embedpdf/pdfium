@@ -17,6 +17,8 @@
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pageimagecache.h"
 #include "core/fpdfapi/page/cpdf_pagemodule.h"
+#include "core/fpdfdoc/cpdf_annot.h"
+#include "core/fpdfapi/page/cpdf_annotcontext.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
@@ -826,6 +828,71 @@ FPDF_RenderPageBitmapWithMatrix(FPDF_BITMAP bitmap,
   }
   CPDFSDK_RenderPage(context, pPage, transform_matrix, clip_rect, flags,
                      /*color_scheme=*/nullptr);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RenderAnnotBitmap(FPDF_BITMAP bitmap,
+                       FPDF_PAGE page,
+                       FPDF_ANNOTATION annot,
+                       FPDF_ANNOT_APPEARANCEMODE appearanceMode,
+                       const FS_MATRIX* matrix,
+                       int flags) {
+  // Guards
+  CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
+  if (!bitmap || !pPage || !annot)
+    return false;
+
+  CPDF_AnnotContext* pAnnotContext = CPDFAnnotContextFromFPDFAnnotation(annot);
+  if (!pAnnotContext)
+    return false;
+
+  // Get the annotation's dictionary from the context.
+  RetainPtr<CPDF_Dictionary> pAnnotDict = pAnnotContext->GetMutableAnnotDict();
+  if (!pAnnotDict)
+    return false;
+
+  // Get the document from the page. The CPDF_Annot constructor needs it.
+  CPDF_Document* pDoc = pPage->GetDocument();
+  if (!pDoc)
+    return false;
+
+  // Instantiate CPDF_Annot using its public constructor.
+  auto pAnnot = std::make_unique<CPDF_Annot>(std::move(pAnnotDict), pDoc);
+
+  // ---------------------------------------------------------------- bitmaps
+  RetainPtr<CFX_DIBitmap> pBitmap(CFXDIBitmapFromFPDFBitmap(bitmap));
+  if (!pBitmap)
+    return false;
+  ValidateBitmapPremultiplyState(pBitmap);
+
+#if defined(PDF_USE_SKIA)
+  CFX_DIBitmap::ScopedPremultiplier scoped(pBitmap);
+#endif
+
+  // ---------------------------------------------------------------- device
+  auto device = std::make_unique<CFX_DefaultRenderDevice>();
+  device->AttachWithRgbByteOrder(std::move(pBitmap),
+                                 !!(flags & FPDF_REVERSE_BYTE_ORDER));
+
+
+  // Get the annotation's authoritative bounding box.
+  CFX_FloatRect bbox = pAnnot->GetRect();
+
+  // 1. Start with a matrix that translates the annotation's content to the origin (0,0).
+  CFX_Matrix ctm(1, 0, 0, 1, -bbox.left, -bbox.bottom);
+
+  // 2. Then, apply the scale and flip matrix provided by the caller.
+  // The order of operations is now: (1) translate to origin, (2) scale and flip.
+  if (matrix) {
+    ctm.Concat(CFXMatrixFromFSMatrix(*matrix));
+  }
+
+  // Draw appearance
+  const bool ok = pAnnot->DrawAppearance(
+      pPage, device.get(), ctm,
+      static_cast<CPDF_Annot::AppearanceMode>(appearanceMode));
+
+  return ok ? true : false;
 }
 
 #if defined(PDF_USE_SKIA)
