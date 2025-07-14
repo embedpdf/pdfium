@@ -199,9 +199,6 @@ static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kInset) ==
 static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kUnderline) ==
                   FPDF_ANNOT_BS_UNDERLINE,
               "CPDF_Annot::BorderStyle::kUnderline value mismatch");
-static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kCloudy) ==
-                  FPDF_ANNOT_BS_CLOUDY,
-              "CPDF_Annot::BorderStyle::kCloudy value mismatch");
 static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kUnknown) ==
                   FPDF_ANNOT_BS_UNKNOWN,
               "CPDF_Annot::BorderStyle::kUnknown value mismatch");
@@ -2036,6 +2033,43 @@ EPDFAnnot_GetBorderStyle(FPDF_ANNOTATION annot, float* width) {
   
   if (width) *width = 0;
   return FPDF_ANNOT_BS_UNKNOWN;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetBorderStyle(FPDF_ANNOTATION annot,
+                         FPDF_ANNOT_BORDER_STYLE style,
+                         float width) {
+  RetainPtr<CPDF_Dictionary> pAnnotDict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict) {
+    return false;
+  }
+
+  RetainPtr<CPDF_Dictionary> pBSDict = pAnnotDict->GetMutableDictFor("BS");
+  if (!pBSDict) {
+    pBSDict = pAnnotDict->SetNewFor<CPDF_Dictionary>("BS");
+  }
+
+  if (width >= 0) {
+    pBSDict->SetNewFor<CPDF_Number>("W", width);
+  } else {
+    pBSDict->RemoveFor("W");
+  }
+
+  if (style == FPDF_ANNOT_BS_UNKNOWN) {
+    pBSDict->RemoveFor("S");
+    return true;
+  }
+
+  auto internal_style = static_cast<CPDF_Annot::BorderStyle>(style);
+  ByteString style_name = CPDF_Annot::BorderStyleToString(internal_style);
+
+  if (style_name.IsEmpty()) {
+    return false;
+  }
+
+  pBSDict->SetNewFor<CPDF_Name>("S", style_name);
+  return true;
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV

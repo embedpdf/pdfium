@@ -70,11 +70,11 @@ class CPDF_Annot {
     kDashed,
     kBeveled,
     kInset,
-    kUnderline,
-    kCloudy
+    kUnderline
   };
 
   static BorderStyle StringToBorderStyle(const ByteString& sStyle);
+  static ByteString BorderStyleToString(BorderStyle nStyle);
   static Subtype StringToAnnotSubtype(const ByteString& sSubtype);
   static ByteString AnnotSubtypeToString(Subtype nSubtype);
   static CFX_FloatRect RectFromQuadPointsArray(const CPDF_Array* pArray,

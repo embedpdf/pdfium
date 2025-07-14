@@ -1096,6 +1096,15 @@ FPDF_EXPORT FPDF_ANNOT_BORDER_STYLE FPDF_CALLCONV
 EPDFAnnot_GetBorderStyle(FPDF_ANNOTATION annot, float* width);
 
 // Experimental EmbedPDF Extension API.
+// Set the border style and width of an annotation.
+//
+//   annot  - handle to an annotation.
+//   width  - the border width to be set.
+//
+// Returns true if successful.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetBorderStyle(FPDF_ANNOTATION annot, FPDF_ANNOT_BORDER_STYLE style, float width);
+
+// Experimental EmbedPDF Extension API.
 // Get the intensity of a cloudy border effect.
 //
 //   annot     - handle to an annotation.

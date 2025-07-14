@@ -462,8 +462,25 @@ CPDF_Annot::BorderStyle CPDF_Annot::StringToBorderStyle(
   if (sStyle == "B") return CPDF_Annot::BorderStyle::kBeveled;
   if (sStyle == "I") return CPDF_Annot::BorderStyle::kInset;
   if (sStyle == "U") return CPDF_Annot::BorderStyle::kUnderline;
-  if (sStyle == "C") return CPDF_Annot::BorderStyle::kCloudy; // Often in /BE dict
   return CPDF_Annot::BorderStyle::kUnknown;
+}
+
+ByteString CPDF_Annot::BorderStyleToString(CPDF_Annot::BorderStyle nStyle) {
+  switch (nStyle) {
+    case CPDF_Annot::BorderStyle::kSolid:
+      return "S";
+    case CPDF_Annot::BorderStyle::kDashed:
+      return "D";
+    case CPDF_Annot::BorderStyle::kBeveled:
+      return "B";
+    case CPDF_Annot::BorderStyle::kInset:
+      return "I";
+    case CPDF_Annot::BorderStyle::kUnderline:
+      return "U";
+    case CPDF_Annot::BorderStyle::kUnknown:
+      break;
+  }
+  return ByteString();
 }
 
 // static
