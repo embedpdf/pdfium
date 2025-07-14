@@ -1183,6 +1183,10 @@ bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
       CFX_Color(CFX_Color::Type::kRGB, 0, 0, 0), PaintOperation::kStroke);
 
   app_stream << border_width << " w ";
+
+  app_stream << "1 J ";  // Rounded Line Caps
+  app_stream << "1 j ";  // Rounded Line Joins (for the corners in the middle)
+
   app_stream << GetDashPatternString(annot_dict);
 
   // Set inflated rect as a new rect because paths near the border with large
@@ -1193,6 +1197,7 @@ bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
 
   for (size_t i = 0; i < ink_list->size(); i++) {
     RetainPtr<const CPDF_Array> coordinates_array = ink_list->GetArrayAt(i);
+    // An ink stroke needs at least one point to start.
     if (!coordinates_array || coordinates_array->size() < 2) {
       continue;
     }
@@ -1200,7 +1205,9 @@ bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
     app_stream << coordinates_array->GetFloatAt(0) << " "
                << coordinates_array->GetFloatAt(1) << " m ";
 
-    for (size_t j = 0; j < coordinates_array->size() - 1; j += 2) {
+    // Start loop at the second point (index 2) ---
+    // The 'm' command already moves to the first point.
+    for (size_t j = 2; j < coordinates_array->size(); j += 2) {
       app_stream << coordinates_array->GetFloatAt(j) << " "
                  << coordinates_array->GetFloatAt(j + 1) << " l ";
     }
