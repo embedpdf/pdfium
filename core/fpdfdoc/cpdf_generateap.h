@@ -12,6 +12,7 @@
 class CPDF_Dictionary;
 class CPDF_Document;
 struct CFX_Color;
+enum class BlendMode;
 
 class CPDF_GenerateAP {
  public:
@@ -26,6 +27,11 @@ class CPDF_GenerateAP {
   static bool GenerateAnnotAP(CPDF_Document* pDoc,
                               CPDF_Dictionary* pAnnotDict,
                               CPDF_Annot::Subtype subtype);
+
+  static bool GenerateAnnotAP(CPDF_Document* doc,
+                              CPDF_Dictionary* annot_dict,
+                              CPDF_Annot::Subtype subtype,
+                              BlendMode blend_mode);
 
   static bool GenerateDefaultAppearanceWithColor(CPDF_Document* doc,
                                                  CPDF_Dictionary* annot_dict,

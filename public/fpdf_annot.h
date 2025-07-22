@@ -107,6 +107,26 @@ typedef enum FPDF_ANNOT_BORDER_STYLE {
     FPDF_ANNOT_BS_CLOUDY
 } FPDF_ANNOT_BORDER_STYLE;
 
+typedef enum {
+  FPDF_BLENDMODE_Normal = 0,
+  FPDF_BLENDMODE_Multiply,
+  FPDF_BLENDMODE_Screen,
+  FPDF_BLENDMODE_Overlay,
+  FPDF_BLENDMODE_Darken,
+  FPDF_BLENDMODE_Lighten,
+  FPDF_BLENDMODE_ColorDodge,
+  FPDF_BLENDMODE_ColorBurn,
+  FPDF_BLENDMODE_HardLight,
+  FPDF_BLENDMODE_SoftLight,
+  FPDF_BLENDMODE_Difference,
+  FPDF_BLENDMODE_Exclusion,
+  FPDF_BLENDMODE_Hue,
+  FPDF_BLENDMODE_Saturation,
+  FPDF_BLENDMODE_Color,
+  FPDF_BLENDMODE_Luminosity,
+  FPDF_BLENDMODE_LAST = FPDF_BLENDMODE_Luminosity
+} FPDF_BLENDMODE;
+
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
 // Currently supported subtypes:
@@ -1165,6 +1185,53 @@ EPDFAnnot_GetBorderDashPattern(FPDF_ANNOTATION annot,
 // Returns true on success.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_GenerateAppearance(FPDF_ANNOTATION annot);
+
+// Experimental EmbedPDF Extension API.
+// Generates or regenerates the appearance stream for a given annotation
+// using PDFium's internal AP generation engine. This is the most reliable way
+// to create a standard-compliant appearance after modifying an annotation's
+// properties like color, quads, etc.
+//
+//   annot  - handle to an annotation.
+//   blend  - the blend mode to use.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GenerateAppearanceWithBlend(FPDF_ANNOTATION annot,
+                                      FPDF_BLENDMODE blend);
+
+// Returns the effective blend mode used by the annotation's *normal*
+// appearance stream. If the annotation has no appearance stream and is a
+// Highlight annotation, returns Multiply (typical synthesized behavior).
+// Returns FPDF_BLENDMODE_Normal on error.
+FPDF_EXPORT FPDF_BLENDMODE FPDF_CALLCONV
+EPDFAnnot_GetBlendMode(FPDF_ANNOTATION annot);
+
+// Sets the Intent (/IT) *name* of an annotation. The value must be a non-empty
+// ASCII byte string *without* the leading slash. If the caller includes a
+// leading '/', it is stripped. Returns false on invalid input or failure.
+// Succeeds regardless of subtype (permissive; /IT is just metadata).
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetIntent(FPDF_ANNOTATION annot, FPDF_BYTESTRING intent);
+
+// Retrieves the Intent (/IT) name of an annotation as UTF-16 (without a
+// leading slash). Returns the number of 16-bit code units required (excluding
+// terminating NUL). If `buffer` is non-null and `buflen` large enough, copies
+// the UTF-16 data and NUL-terminates it (same pattern as FPDFAnnot_GetStringValue).
+// Returns 0 if annotation invalid, no /IT entry, or empty.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetIntent(FPDF_ANNOTATION annot,
+                    FPDF_WCHAR* buffer,
+                    unsigned long buflen);
+
+
+// Get the rich (formatted) text stored in the annotation’s /RC entry.
+// Returns the number of 16‑bit characters required (including the
+// terminating NUL).  Call once with `buffer == nullptr` to get the size.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetRichContent(FPDF_ANNOTATION annot,
+                         FPDF_WCHAR* buffer,
+                         unsigned long buflen);
 
 #ifdef __cplusplus
 }  // extern "C"

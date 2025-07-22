@@ -14,6 +14,7 @@
 #include "constants/appearance.h"
 #include "constants/font_encodings.h"
 #include "constants/form_fields.h"
+#include "constants/transparency.h"
 #include "core/fpdfapi/edit/cpdf_contentstream_write_utils.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
@@ -54,6 +55,37 @@ struct CPVT_Dash {
 };
 
 enum class PaintOperation { kStroke, kFill };
+
+ByteString BlendModeToPDFName(BlendMode bm) {
+  switch (bm) {
+    case BlendMode::kNormal:      return ByteString(pdfium::transparency::kNormal);
+    case BlendMode::kMultiply:    return ByteString(pdfium::transparency::kMultiply);
+    case BlendMode::kScreen:      return ByteString(pdfium::transparency::kScreen);
+    case BlendMode::kOverlay:     return ByteString(pdfium::transparency::kOverlay);
+    case BlendMode::kDarken:      return ByteString(pdfium::transparency::kDarken);
+    case BlendMode::kLighten:     return ByteString(pdfium::transparency::kLighten);
+    case BlendMode::kColorDodge:  return ByteString(pdfium::transparency::kColorDodge);
+    case BlendMode::kColorBurn:   return ByteString(pdfium::transparency::kColorBurn);
+    case BlendMode::kHardLight:   return ByteString(pdfium::transparency::kHardLight);
+    case BlendMode::kSoftLight:   return ByteString(pdfium::transparency::kSoftLight);
+    case BlendMode::kDifference:  return ByteString(pdfium::transparency::kDifference);
+    case BlendMode::kExclusion:   return ByteString(pdfium::transparency::kExclusion);
+    case BlendMode::kHue:         return ByteString(pdfium::transparency::kHue);
+    case BlendMode::kSaturation:  return ByteString(pdfium::transparency::kSaturation);
+    case BlendMode::kColor:       return ByteString(pdfium::transparency::kColor);
+    case BlendMode::kLuminosity:  return ByteString(pdfium::transparency::kLuminosity);
+  }
+  return ByteString(pdfium::transparency::kNormal);
+}
+
+static BlendMode DefaultBlendModeFor(CPDF_Annot::Subtype subtype) {
+  switch (subtype) {
+    case CPDF_Annot::Subtype::HIGHLIGHT:
+      return BlendMode::kMultiply;
+    default:
+      return BlendMode::kNormal;
+  }
+}
 
 ByteString GetPDFWordString(IPVT_FontMap* font_map,
                             int32_t font_index,
@@ -960,7 +992,7 @@ ByteString GenerateListBoxAP(const CPDF_Dictionary* annot_dict,
   return ByteString(body_stream);
 }
 
-bool GenerateCircleAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateCircleAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1023,14 +1055,14 @@ bool GenerateCircleAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
   bool is_fill_rect = interior_color && !interior_color->IsEmpty();
   app_stream << GetPaintOperatorString(is_stroke_rect, is_fill_rect) << "\n";
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        false /*IsTextMarkupAnnotation*/);
   return true;
 }
 
-bool GenerateFreeTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateFreeTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   RetainPtr<CPDF_Dictionary> root_dict = doc->GetMutableRoot();
   if (!root_dict) {
     return false;
@@ -1122,7 +1154,7 @@ bool GenerateFreeTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
                       << "Q\nEMC\n";
   }
 
-  auto graphics_state_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto graphics_state_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resource_font_dict =
       GenerateResourceFontDict(doc, font_name, font_dict->GetObjNum());
   auto resource_dict = GenerateResourcesDict(
@@ -1133,7 +1165,7 @@ bool GenerateFreeTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
   return true;
 }
 
-bool GenerateHighlightAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateHighlightAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1156,7 +1188,7 @@ bool GenerateHighlightAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
     }
   }
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Multiply");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        true /*IsTextMarkupAnnotation*/);
@@ -1164,7 +1196,7 @@ bool GenerateHighlightAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
   return true;
 }
 
-bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   RetainPtr<const CPDF_Array> ink_list = annot_dict->GetArrayFor("InkList");
   if (!ink_list || ink_list->IsEmpty()) {
     return false;
@@ -1215,14 +1247,14 @@ bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
     app_stream << "S\n";
   }
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        false /*IsTextMarkupAnnotation*/);
   return true;
 }
 
-bool GenerateTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1234,14 +1266,14 @@ bool GenerateTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
 
   app_stream << GenerateTextSymbolAP(note_rect);
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        false /*IsTextMarkupAnnotation*/);
   return true;
 }
 
-bool GenerateUnderlineAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateUnderlineAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1264,14 +1296,14 @@ bool GenerateUnderlineAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
     }
   }
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        true /*IsTextMarkupAnnotation*/);
   return true;
 }
 
-bool GeneratePopupAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GeneratePopupAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs\n";
 
@@ -1301,7 +1333,7 @@ bool GeneratePopupAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
   RetainPtr<CPDF_Dictionary> resource_font_dict =
       GenerateResourceFontDict(doc, font_name, font_dict->GetObjNum());
   RetainPtr<CPDF_Dictionary> gs_dict =
-      GenerateExtGStateDict(*annot_dict, "Normal");
+      GenerateExtGStateDict(*annot_dict, blend_name);
   RetainPtr<CPDF_Dictionary> resources_dict = GenerateResourcesDict(
       doc, std::move(gs_dict), std::move(resource_font_dict));
 
@@ -1312,7 +1344,7 @@ bool GeneratePopupAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
   return true;
 }
 
-bool GenerateSquareAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateSquareAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1347,14 +1379,14 @@ bool GenerateSquareAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
              << rect.Height() << " re "
              << GetPaintOperatorString(is_stroke_rect, is_fill_rect) << "\n";
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        false /*IsTextMarkupAnnotation*/);
   return true;
 }
 
-bool GenerateSquigglyAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateSquigglyAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1397,14 +1429,14 @@ bool GenerateSquigglyAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
     }
   }
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        true /*IsTextMarkupAnnotation*/);
   return true;
 }
 
-bool GenerateStrikeOutAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
+bool GenerateStrikeOutAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   fxcrt::ostringstream app_stream;
   app_stream << "/" << kGSDictName << " gs ";
 
@@ -1428,7 +1460,7 @@ bool GenerateStrikeOutAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict) {
     }
   }
 
-  auto gs_dict = GenerateExtGStateDict(*annot_dict, "Normal");
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
   auto resources_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app_stream, std::move(resources_dict),
                        true /*IsTextMarkupAnnotation*/);
@@ -1589,27 +1621,37 @@ void CPDF_GenerateAP::GenerateEmptyAP(CPDF_Document* doc,
 bool CPDF_GenerateAP::GenerateAnnotAP(CPDF_Document* doc,
                                       CPDF_Dictionary* annot_dict,
                                       CPDF_Annot::Subtype subtype) {
+  return GenerateAnnotAP(doc, annot_dict, subtype,
+                         DefaultBlendModeFor(subtype));
+}
+
+// static
+bool CPDF_GenerateAP::GenerateAnnotAP(CPDF_Document* doc,
+                                      CPDF_Dictionary* annot_dict,
+                                      CPDF_Annot::Subtype subtype,
+                                      BlendMode blend_mode) {
+  ByteString blend_name = BlendModeToPDFName(blend_mode);
   switch (subtype) {
     case CPDF_Annot::Subtype::CIRCLE:
-      return GenerateCircleAP(doc, annot_dict);
+      return GenerateCircleAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::FREETEXT:
-      return GenerateFreeTextAP(doc, annot_dict);
+      return GenerateFreeTextAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::HIGHLIGHT:
-      return GenerateHighlightAP(doc, annot_dict);
+      return GenerateHighlightAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::INK:
-      return GenerateInkAP(doc, annot_dict);
+      return GenerateInkAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::POPUP:
-      return GeneratePopupAP(doc, annot_dict);
+      return GeneratePopupAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::SQUARE:
-      return GenerateSquareAP(doc, annot_dict);
+      return GenerateSquareAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::SQUIGGLY:
-      return GenerateSquigglyAP(doc, annot_dict);
+      return GenerateSquigglyAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::STRIKEOUT:
-      return GenerateStrikeOutAP(doc, annot_dict);
+      return GenerateStrikeOutAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::TEXT:
-      return GenerateTextAP(doc, annot_dict);
+      return GenerateTextAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::UNDERLINE:
-      return GenerateUnderlineAP(doc, annot_dict);
+      return GenerateUnderlineAP(doc, annot_dict, blend_name);
     default:
       return false;
   }

@@ -203,6 +203,56 @@ static_assert(static_cast<int>(CPDF_Annot::BorderStyle::kUnknown) ==
                   FPDF_ANNOT_BS_UNKNOWN,
               "CPDF_Annot::BorderStyle::kUnknown value mismatch");
 
+// These checks ensure the consistency of blend mode values across core/ and public.
+static_assert(static_cast<int>(BlendMode::kNormal) == 
+                  FPDF_BLENDMODE_Normal, 
+              "BlendMode::kNormal value mismatch");
+static_assert(static_cast<int>(BlendMode::kMultiply) == 
+                  FPDF_BLENDMODE_Multiply, 
+              "BlendMode::kMultiply value mismatch");
+static_assert(static_cast<int>(BlendMode::kScreen) == 
+                  FPDF_BLENDMODE_Screen, 
+              "BlendMode::kScreen value mismatch");
+static_assert(static_cast<int>(BlendMode::kOverlay) == 
+                  FPDF_BLENDMODE_Overlay, 
+              "BlendMode::kOverlay value mismatch");
+static_assert(static_cast<int>(BlendMode::kDarken) == 
+                  FPDF_BLENDMODE_Darken, 
+              "BlendMode::kDarken value mismatch");
+static_assert(static_cast<int>(BlendMode::kLighten) == 
+                  FPDF_BLENDMODE_Lighten, 
+              "BlendMode::kLighten value mismatch");
+static_assert(static_cast<int>(BlendMode::kColorDodge) == 
+                  FPDF_BLENDMODE_ColorDodge, 
+              "BlendMode::kColorDodge value mismatch");
+static_assert(static_cast<int>(BlendMode::kColorBurn) == 
+                  FPDF_BLENDMODE_ColorBurn, 
+              "BlendMode::kColorBurn value mismatch");
+static_assert(static_cast<int>(BlendMode::kHardLight) == 
+                  FPDF_BLENDMODE_HardLight, 
+              "BlendMode::kHardLight value mismatch"); 
+static_assert(static_cast<int>(BlendMode::kSoftLight) == 
+                  FPDF_BLENDMODE_SoftLight, 
+              "BlendMode::kSoftLight value mismatch");
+static_assert(static_cast<int>(BlendMode::kDifference) == 
+                  FPDF_BLENDMODE_Difference, 
+              "BlendMode::kDifference value mismatch");
+static_assert(static_cast<int>(BlendMode::kExclusion) == 
+                  FPDF_BLENDMODE_Exclusion, 
+              "BlendMode::kExclusion value mismatch");
+static_assert(static_cast<int>(BlendMode::kHue) == 
+                  FPDF_BLENDMODE_Hue, 
+              "BlendMode::kHue value mismatch"); 
+static_assert(static_cast<int>(BlendMode::kSaturation) == 
+                  FPDF_BLENDMODE_Saturation, 
+              "BlendMode::kSaturation value mismatch");
+static_assert(static_cast<int>(BlendMode::kColor) == 
+                  FPDF_BLENDMODE_Color, 
+              "BlendMode::kColor value mismatch");
+static_assert(static_cast<int>(BlendMode::kLuminosity) == 
+                  FPDF_BLENDMODE_Luminosity, 
+              "BlendMode::kLuminosity value mismatch");
+
 bool HasAPStream(CPDF_Dictionary* pAnnotDict) {
   return !!GetAnnotAP(pAnnotDict, CPDF_Annot::AppearanceMode::kNormal);
 }
@@ -262,6 +312,46 @@ void UpdateBBox(CPDF_Dictionary* annot_dict) {
       pStream->GetMutableDict()->SetRectFor("BBox", boundingRect);
     }
   }
+}
+
+BlendMode GetEffectiveAnnotBlendMode(CPDF_AnnotContext* ctx) {
+  if (!ctx)
+    return BlendMode::kNormal;
+
+  RetainPtr<CPDF_Dictionary> annot_dict = ctx->GetMutableAnnotDict();
+  if (!annot_dict)
+    return BlendMode::kNormal;
+
+  // Get (or detect absence of) normal appearance stream.
+  RetainPtr<CPDF_Stream> ap_stream =
+      GetAnnotAP(annot_dict.Get(), CPDF_Annot::AppearanceMode::kNormal);
+  if (!ap_stream) {
+    // Heuristic: highlight annotations without AP are effectively Multiply.
+    const CPDF_Annot::Subtype subtype = CPDF_Annot::StringToAnnotSubtype(
+        annot_dict->GetNameFor(pdfium::annotation::kSubtype));
+    if (subtype == CPDF_Annot::Subtype::HIGHLIGHT)
+      return BlendMode::kMultiply;
+    return BlendMode::kNormal;
+  }
+
+  // Ensure form is parsed.
+  if (!ctx->HasForm())
+    ctx->SetForm(ap_stream);
+
+  CPDF_Form* form = ctx->GetForm();
+  if (!form)
+    return BlendMode::kNormal;
+
+  // Iterate objects in creation order; pick first non-Normal encountered.
+  for (const auto& obj : *form) {
+    if (!obj)
+      continue;
+    const CPDF_GeneralState& gs = obj->general_state();
+    BlendMode bm = gs.GetBlendType();
+    if (bm != BlendMode::kNormal)
+      return bm;
+  }
+  return BlendMode::kNormal;
 }
 
 const CPDF_Dictionary* GetAnnotDictFromFPDFAnnotation(
@@ -2096,4 +2186,112 @@ EPDFAnnot_GenerateAppearance(FPDF_ANNOTATION annot) {
 
   // This is the key: call the internal AP generator.
   return CPDF_GenerateAP::GenerateAnnotAP(pDoc, pAnnotDict.Get(), subtype);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GenerateAppearanceWithBlend(FPDF_ANNOTATION annot,
+                                      FPDF_BLENDMODE blend) {
+  CPDF_AnnotContext* ctx = CPDFAnnotContextFromFPDFAnnotation(annot);
+  if (!ctx)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> annot_dict = ctx->GetMutableAnnotDict();
+  if (!annot_dict)
+    return false;
+
+  CPDF_Document* doc = ctx->GetPage()->GetDocument();
+  if (!doc)
+    return false;
+
+  const CPDF_Annot::Subtype subtype = CPDF_Annot::StringToAnnotSubtype(
+      annot_dict->GetNameFor(pdfium::annotation::kSubtype));
+
+  // Validate blend enum range if needed (already static_assert aligned).
+  auto internal = static_cast<BlendMode>(blend);
+
+  return CPDF_GenerateAP::GenerateAnnotAP(doc, annot_dict.Get(), subtype,
+                                          internal);
+}
+
+FPDF_EXPORT FPDF_BLENDMODE FPDF_CALLCONV
+EPDFAnnot_GetBlendMode(FPDF_ANNOTATION annot) {
+  CPDF_AnnotContext* ctx = CPDFAnnotContextFromFPDFAnnotation(annot);
+  if (!ctx)
+    return FPDF_BLENDMODE_Normal;
+
+  BlendMode bm = GetEffectiveAnnotBlendMode(ctx);
+  // Safe cast due to static_asserts above.
+  return static_cast<FPDF_BLENDMODE>(bm);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetIntent(FPDF_ANNOTATION annot, FPDF_BYTESTRING intent) {
+  if (!annot || !intent || !*intent)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  // Allow leading slash from caller; strip it.
+  if (intent[0] == '/')
+    ++intent;
+
+  if (!*intent)
+    return false;
+
+  // Minimal validation (PDFium typically trusts caller). Could reject spaces /
+  // delimiters (),<>[]{}/%# if you want to be stricter. Keeping permissive.
+  dict->SetNewFor<CPDF_Name>("IT", intent);
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetIntent(FPDF_ANNOTATION annot,
+                    FPDF_WCHAR* buffer,
+                    unsigned long buflen) {
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return 0;
+
+  ByteString name = dict->GetNameFor("IT");
+  if (name.IsEmpty())
+    return 0;
+
+  // Name objects are ASCII (or PDF name syntax). For normal ASCII we can
+  // construct a WideString directly. (If you later want to decode #XX escapes
+  // you could add a small routine; PDFium generally leaves raw name.)
+  WideString wname = WideString::FromASCII(name.c_str());
+
+  // SAFETY: required from caller.
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      wname, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetRichContent(FPDF_ANNOTATION annot,
+                         FPDF_WCHAR* buffer,
+                         unsigned long buflen) {
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return 0;
+
+  // /RC may be a text string or a stream (PDF 2.0 §12.5.6.5).
+  RetainPtr<const CPDF_Object> rc_obj = dict->GetObjectFor("RC");
+  if (!rc_obj)
+    return 0;
+
+  WideString ws;
+  if (rc_obj->IsString() || rc_obj->IsName()) {
+    ws = rc_obj->GetUnicodeText();        // handles PDFDocEncoding / UTF‑16BE
+  } else if (rc_obj->IsStream()) {
+    ws = rc_obj->AsStream()->GetUnicodeText();
+  } else {
+    return 0;                             // some exotic type we don’t handle
+  }
+
+  // SAFETY: same pattern as other getters.
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      ws, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
 }
