@@ -1977,6 +1977,22 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_ClearColor(FPDF_ANNOTATION annot, FPDFANNOT_COLORTYPE type) {
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  ByteStringView key = type == FPDFANNOT_COLORTYPE_InteriorColor ? "IC" : "C";
+  dict->RemoveFor(key);
+
+  // If neither C nor IC remain, opacity CA is pointless; drop if you want.
+  if (!dict->KeyExist("C") && !dict->KeyExist("IC"))
+    dict->RemoveFor("CA");
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_GetBorderEffect(FPDF_ANNOTATION annot, float* intensity) {
   if (!intensity) {
     return false;
@@ -2099,6 +2115,48 @@ EPDFAnnot_GetBorderDashPattern(FPDF_ANNOTATION annot,
   for (unsigned long i = 0; i < count; ++i) {
     dash_array[i] = pDashArray->GetFloatAt(i);
   }
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetBorderDashPattern(FPDF_ANNOTATION annot,
+                               const float* dash_array,
+                               unsigned long count) {
+  if (!annot)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!annot_dict)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> bs_dict = annot_dict->GetMutableDictFor("BS");
+  if (!bs_dict)
+    bs_dict = annot_dict->SetNewFor<CPDF_Dictionary>("BS");
+
+  // --- Removal branch (PDFium style) ---
+  if (!dash_array || count == 0) {
+    bs_dict->RemoveFor("D");
+    // Optional: if style was dashed only because of the array, you can revert.
+    // Leaving it unchanged matches PDFium’s permissive style.
+    if (bs_dict->size() == 0)
+      annot_dict->RemoveFor("BS");
+    return true;
+  }
+
+  // --- Set branch ---
+  bs_dict->SetNewFor<CPDF_Name>("S", "D");
+
+  RetainPtr<CPDF_Array> d_array = bs_dict->GetMutableArrayFor("D");
+  if (d_array)
+    d_array->Clear();
+  else
+    d_array = bs_dict->SetNewFor<CPDF_Array>("D");
+
+  // SAFETY: caller guarantees `dash_array` has `count` elements.
+  for (unsigned long i = 0; i < count; ++i)
+    d_array->AppendNew<CPDF_Number>(dash_array[i]);
 
   return true;
 }

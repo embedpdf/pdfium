@@ -1105,6 +1105,15 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
                                                        unsigned int A);
 
 // Experimental EmbedPDF Extension API.
+// Clear the color of an annotation.
+//
+//   annot    - handle to an annotation.
+//   type     - type of the color to be cleared.
+//
+// Returns true if successful.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_ClearColor(FPDF_ANNOTATION annot, FPDFANNOT_COLORTYPE type);
+
+// Experimental EmbedPDF Extension API.
 // Get the border style and width of an annotation. This function handles both
 // the modern /BS dictionary and the legacy /Border array.
 //
@@ -1173,6 +1182,20 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_GetBorderDashPattern(FPDF_ANNOTATION annot,
                                float* dash_array,
                                unsigned long count);
+
+// Experimental EmbedPDF Extension API.
+// Sets (or replaces) the dash pattern on an annotation's border.
+//
+//   annot      - handle to an annotation.
+//   dash_array - the dash pattern to be set.
+//   count      - the number of entries in the buffer, obtained from
+//                EPDFAnnot_GetBorderDashPatternCount().
+//
+// Returns true on success.
+ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+ EPDFAnnot_SetBorderDashPattern(FPDF_ANNOTATION annot,
+                                const float* dash_array,
+                                unsigned long count);
 
 // Experimental EmbedPDF Extension API.
 // Generates or regenerates the appearance stream for a given annotation
