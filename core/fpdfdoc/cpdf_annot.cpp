@@ -454,6 +454,68 @@ ByteString CPDF_Annot::AnnotSubtypeToString(CPDF_Annot::Subtype nSubtype) {
   return ByteString();
 }
 
+ByteString CPDF_Annot::LineEndingToString(CPDF_Annot::LineEnding le) {
+  switch (le) {
+    case LineEnding::kNone:
+      return "None";
+    case LineEnding::kSquare:
+      return "Square";
+    case LineEnding::kCircle:
+      return "Circle";
+    case LineEnding::kDiamond:
+      return "Diamond";
+    case LineEnding::kOpenArrow:    
+      return "OpenArrow";
+    case LineEnding::kClosedArrow:  
+      return "ClosedArrow";
+    case LineEnding::kButt:         
+      return "Butt";
+    case LineEnding::kROpenArrow:   
+      return "ROpenArrow";
+    case LineEnding::kRClosedArrow: 
+      return "RClosedArrow";
+    case LineEnding::kSlash:        
+      return "Slash";
+    case LineEnding::kUnknown:
+      break;
+  }
+  return ByteString();
+}
+
+CPDF_Annot::LineEnding CPDF_Annot::StringToLineEnding(const ByteString& n) {
+  if (n == "None") {
+    return LineEnding::kNone;
+  }
+  if (n == "Square") {
+    return LineEnding::kSquare;
+  }
+  if (n == "Circle") {
+    return LineEnding::kCircle;
+  }
+  if (n == "Diamond") {
+    return LineEnding::kDiamond;
+  }
+  if (n == "OpenArrow") {
+    return LineEnding::kOpenArrow;
+  }
+  if (n == "ClosedArrow") {
+    return LineEnding::kClosedArrow;
+  }
+  if (n == "Butt") {
+    return LineEnding::kButt;
+  }
+  if (n == "ROpenArrow") {
+    return LineEnding::kROpenArrow;
+  }
+  if (n == "RClosedArrow") {
+    return LineEnding::kRClosedArrow;
+  }
+  if (n == "Slash") {
+    return LineEnding::kSlash;
+  }
+  return LineEnding::kUnknown;
+}
+
 // static
 CPDF_Annot::BorderStyle CPDF_Annot::StringToBorderStyle(
     const ByteString& sStyle) {

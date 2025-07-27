@@ -127,6 +127,20 @@ typedef enum {
   FPDF_BLENDMODE_LAST = FPDF_BLENDMODE_Luminosity
 } FPDF_BLENDMODE;
 
+typedef enum {
+  FPDF_ANNOT_LE_None = 0,
+  FPDF_ANNOT_LE_Square,
+  FPDF_ANNOT_LE_Circle,
+  FPDF_ANNOT_LE_Diamond,
+  FPDF_ANNOT_LE_OpenArrow,
+  FPDF_ANNOT_LE_ClosedArrow,
+  FPDF_ANNOT_LE_Butt,
+  FPDF_ANNOT_LE_ROpenArrow,
+  FPDF_ANNOT_LE_RClosedArrow,
+  FPDF_ANNOT_LE_Slash,
+  FPDF_ANNOT_LE_Unknown
+} FPDF_ANNOT_LINE_END;
+
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
 // Currently supported subtypes:
@@ -1255,6 +1269,30 @@ FPDF_EXPORT unsigned long FPDF_CALLCONV
 EPDFAnnot_GetRichContent(FPDF_ANNOTATION annot,
                          FPDF_WCHAR* buffer,
                          unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the line endings of an annotation.
+//
+//   annot    - handle to an annotation.
+//   start_style - the start line ending style.
+//   end_style   - the end line ending style.
+//
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetLineEndings(FPDF_ANNOTATION annot,
+                        FPDF_ANNOT_LINE_END start_style,
+                        FPDF_ANNOT_LINE_END end_style);
+
+// Experimental EmbedPDF Extension API.
+// Get the line endings of an annotation.
+//
+//   annot    - handle to an annotation.
+//   start_style - receives the start line ending style.
+//   end_style   - receives the end line ending style.
+//
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetLineEndings(FPDF_ANNOTATION annot,
+                        FPDF_ANNOT_LINE_END* start_style,
+                        FPDF_ANNOT_LINE_END* end_style);
 
 #ifdef __cplusplus
 }  // extern "C"

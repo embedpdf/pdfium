@@ -253,6 +253,41 @@ static_assert(static_cast<int>(BlendMode::kLuminosity) ==
                   FPDF_BLENDMODE_Luminosity, 
               "BlendMode::kLuminosity value mismatch");
 
+// These checks ensure the consistency of line ending values across core/ and public.
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kNone) ==
+              FPDF_ANNOT_LE_None,
+          "LineEnding::kNone mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kSquare) ==
+              FPDF_ANNOT_LE_Square,
+          "LineEnding::kSquare mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kCircle) ==
+              FPDF_ANNOT_LE_Circle,
+          "LineEnding::kCircle mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kDiamond) ==
+              FPDF_ANNOT_LE_Diamond,
+          "LineEnding::kDiamond mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kOpenArrow) ==
+              FPDF_ANNOT_LE_OpenArrow,
+          "LineEnding::kOpenArrow mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kClosedArrow) ==
+              FPDF_ANNOT_LE_ClosedArrow,
+          "LineEnding::kClosedArrow mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kButt) ==
+              FPDF_ANNOT_LE_Butt,
+          "LineEnding::kButt mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kROpenArrow) ==
+              FPDF_ANNOT_LE_ROpenArrow,
+          "LineEnding::kROpenArrow mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kRClosedArrow) ==
+              FPDF_ANNOT_LE_RClosedArrow,
+          "LineEnding::kRClosedArrow mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kSlash) ==
+              FPDF_ANNOT_LE_Slash,
+          "LineEnding::kSlash mismatch");
+static_assert(static_cast<int>(CPDF_Annot::LineEnding::kUnknown) ==
+              FPDF_ANNOT_LE_Unknown,
+          "LineEnding::kUnknown mismatch");
+
 bool HasAPStream(CPDF_Dictionary* pAnnotDict) {
   return !!GetAnnotAP(pAnnotDict, CPDF_Annot::AppearanceMode::kNormal);
 }
@@ -1942,12 +1977,11 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
       *R = 255;
       *G = 255;
       *B = 0;
-    } else {
-      *R = 0;
-      *G = 0;
-      *B = 0;
+
+      return true;
     }
-    return true;
+    // Otherwise, signal "no colour set".
+    return false;
   }
 
   CFX_Color color = fpdfdoc::CFXColorFromArray(*pColor);
@@ -1971,6 +2005,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
       *R = 0;
       *G = 0;
       *B = 0;
+      *A = 0;  // explicitly transparent
       break;
   }
   return true;
@@ -2352,4 +2387,99 @@ EPDFAnnot_GetRichContent(FPDF_ANNOTATION annot,
   // SAFETY: same pattern as other getters.
   return Utf16EncodeMaybeCopyAndReturnLength(
       ws, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetLineEndings(FPDF_ANNOTATION annot,
+                         FPDF_ANNOT_LINE_END start_style,
+                         FPDF_ANNOT_LINE_END end_style) {
+  // Only LINE (and optionally POLYLINE) annotations have /LE.
+  FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
+  if (subtype != FPDF_ANNOT_LINE && subtype != FPDF_ANNOT_POLYLINE)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  auto to_core = [](FPDF_ANNOT_LINE_END v) {
+    return static_cast<CPDF_Annot::LineEnding>(v);
+  };
+
+  CPDF_Annot::LineEnding s = to_core(start_style);
+  CPDF_Annot::LineEnding e = to_core(end_style);
+
+  // If both are unknown, remove the entry (PDFium style).
+  if (s == CPDF_Annot::LineEnding::kUnknown &&
+      e == CPDF_Annot::LineEnding::kUnknown) {
+    dict->RemoveFor("LE");
+    return true;
+  }
+
+  ByteString s_name = CPDF_Annot::LineEndingToString(s);
+  ByteString e_name = CPDF_Annot::LineEndingToString(e);
+
+  // Fallback to "None" for invalids.
+  if (s_name.IsEmpty())
+    s_name = "None";
+  if (e_name.IsEmpty())
+    e_name = "None";
+
+  RetainPtr<CPDF_Array> le = dict->GetMutableArrayFor("LE");
+  if (le)
+    le->Clear();
+  else
+    le = dict->SetNewFor<CPDF_Array>("LE");
+
+  le->AppendNew<CPDF_Name>(s_name);
+  le->AppendNew<CPDF_Name>(e_name);
+
+  return true;
+}
+
+static ByteString ReadLineEndingToken(const CPDF_Array* le, size_t idx) {
+  RetainPtr<const CPDF_Object> obj = le->GetDirectObjectAt(idx);
+  if (!obj)
+    return ByteString();
+
+  if (const CPDF_Name* n = obj->AsName())
+    return n->GetString(); // e.g. "OpenArrow"
+
+  if (const CPDF_String* s = obj->AsString())
+    return s->GetString(); // tolerate a stray string
+
+  return ByteString(); // anything else -> empty
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetLineEndings(FPDF_ANNOTATION annot,
+                         FPDF_ANNOT_LINE_END* start_style,
+                         FPDF_ANNOT_LINE_END* end_style) {
+  if (!start_style || !end_style)
+    return false;
+
+  FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
+  if (subtype != FPDF_ANNOT_LINE && subtype != FPDF_ANNOT_POLYLINE)
+    return false;
+
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  RetainPtr<const CPDF_Array> le = dict->GetArrayFor("LE");
+  if (!le || le->size() < 2)
+    return false;
+
+  ByteString s_name = ReadLineEndingToken(le.Get(), 0);
+  ByteString e_name = ReadLineEndingToken(le.Get(), 1);
+
+  // Fallback to None if unreadable
+  CPDF_Annot::LineEnding s =
+      CPDF_Annot::StringToLineEnding(s_name.IsEmpty() ? "None" : s_name);
+  CPDF_Annot::LineEnding e =
+      CPDF_Annot::StringToLineEnding(e_name.IsEmpty() ? "None" : e_name);
+
+  *start_style = static_cast<FPDF_ANNOT_LINE_END>(s);
+  *end_style   = static_cast<FPDF_ANNOT_LINE_END>(e);
+  return true;
 }

@@ -73,10 +73,26 @@ class CPDF_Annot {
     kUnderline
   };
 
+  enum class LineEnding {
+    kNone,
+    kSquare,
+    kCircle,
+    kDiamond,
+    kOpenArrow,
+    kClosedArrow,
+    kButt,
+    kROpenArrow,
+    kRClosedArrow,
+    kSlash,
+    kUnknown
+  };
+
   static BorderStyle StringToBorderStyle(const ByteString& sStyle);
   static ByteString BorderStyleToString(BorderStyle nStyle);
   static Subtype StringToAnnotSubtype(const ByteString& sSubtype);
   static ByteString AnnotSubtypeToString(Subtype nSubtype);
+  static LineEnding StringToLineEnding(const ByteString& name);
+  static ByteString LineEndingToString(LineEnding le);
   static CFX_FloatRect RectFromQuadPointsArray(const CPDF_Array* pArray,
                                                size_t nIndex);
   static CFX_FloatRect BoundingRectFromQuadPoints(
