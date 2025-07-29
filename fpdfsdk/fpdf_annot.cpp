@@ -543,6 +543,8 @@ FPDFAnnot_IsSupportedSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
     case FPDF_ANNOT_STRIKEOUT:
     case FPDF_ANNOT_TEXT:
     case FPDF_ANNOT_UNDERLINE:
+    case FPDF_ANNOT_POLYGON:
+    case FPDF_ANNOT_POLYLINE:
       return true;
     default:
       return false;
@@ -2481,5 +2483,43 @@ EPDFAnnot_GetLineEndings(FPDF_ANNOTATION annot,
 
   *start_style = static_cast<FPDF_ANNOT_LINE_END>(s);
   *end_style   = static_cast<FPDF_ANNOT_LINE_END>(e);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetVertices(FPDF_ANNOTATION annot,
+                      const FS_POINTF* points,
+                      unsigned long count) {
+  // Accept only Polygon / Polyline annotations.
+  FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
+  if (subtype != FPDF_ANNOT_POLYGON && subtype != FPDF_ANNOT_POLYLINE)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  // ───── Removal branch ────────────────────────────────────────────────
+  // If caller passes nullptr or zero, delete the /Vertices array.
+  if (!points || count == 0) {
+    dict->RemoveFor(pdfium::annotation::kVertices);
+    return true;
+  }
+
+  // ───── Replacement branch ───────────────────────────────────────────
+  RetainPtr<CPDF_Array> verts =
+      dict->GetMutableArrayFor(pdfium::annotation::kVertices);
+  if (verts)
+    verts->Clear();
+  else
+    verts = dict->SetNewFor<CPDF_Array>(pdfium::annotation::kVertices);
+
+  // SAFETY: caller guarantees |points| has |count| entries.
+  auto pts = UNSAFE_BUFFERS(pdfium::span(points, count));
+  for (unsigned long i = 0; i < count; ++i) {
+    verts->AppendNew<CPDF_Number>(pts[i].x);
+    verts->AppendNew<CPDF_Number>(pts[i].y);
+  }
+
   return true;
 }

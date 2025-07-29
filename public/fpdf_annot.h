@@ -1294,6 +1294,20 @@ EPDFAnnot_GetLineEndings(FPDF_ANNOTATION annot,
                         FPDF_ANNOT_LINE_END* start_style,
                         FPDF_ANNOT_LINE_END* end_style);
 
+// Experimental EmbedPDF Extension API.
+// Replace every vertex in the /Vertices array with the |points| supplied.
+// If |points| is nullptr or |count| is 0, the array is removed.
+//
+//   annot    - handle to an annotation.
+//   points   - the vertices to be set.
+//   count    - the number of vertices to be set.
+//
+// Returns true on success.
+ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+ EPDFAnnot_SetVertices(FPDF_ANNOTATION annot,
+                       const FS_POINTF* points,
+                       unsigned long count);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

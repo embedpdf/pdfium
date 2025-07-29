@@ -1196,6 +1196,55 @@ bool GenerateHighlightAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const 
   return true;
 }
 
+bool GeneratePolygonAP(CPDF_Document* doc,
+                       CPDF_Dictionary* annot_dict,
+                       const ByteString& blend_name) {
+  RetainPtr<const CPDF_Array> verts =
+      annot_dict->GetArrayFor(pdfium::annotation::kVertices);
+  // A polygon needs ≥ 3 points  (= 6 floats).
+  if (!verts || verts->size() < 6)
+    return false;
+
+  // ── colours & graphics state ------------------------------------------------
+  fxcrt::ostringstream app;
+  app << "/" << kGSDictName << " gs ";
+
+  RetainPtr<const CPDF_Array> interior_color = annot_dict->GetArrayFor("IC");
+  app << GetColorStringWithDefault(
+            interior_color.Get(),
+            CFX_Color(CFX_Color::Type::kTransparent),  // default: no fill
+            PaintOperation::kFill);
+
+  app << GetColorStringWithDefault(
+            annot_dict->GetArrayFor(pdfium::annotation::kC).Get(),
+            CFX_Color(CFX_Color::Type::kRGB, 0, 0, 0),  // default stroke: black
+            PaintOperation::kStroke);
+
+  const float border_w = GetBorderWidth(annot_dict);
+  const bool  do_stroke = border_w > 0;
+  if (do_stroke) {
+    app << border_w << " w ";
+    app << GetDashPatternString(annot_dict);
+  }
+
+  // ── path -------------------------------------------------------------------
+  // Move to first point
+  app << verts->GetFloatAt(0) << " " << verts->GetFloatAt(1) << " m ";
+  for (size_t i = 2; i + 1 < verts->size(); i += 2)
+    app << verts->GetFloatAt(i) << " " << verts->GetFloatAt(i + 1) << " l ";
+  app << "h ";  // close path
+
+  const bool do_fill = interior_color && !interior_color->IsEmpty();
+  app << GetPaintOperatorString(do_stroke, do_fill) << "\n";
+
+  // ── resources / stream dict -------------------------------------------------
+  auto gs_dict  = GenerateExtGStateDict(*annot_dict, blend_name);
+  auto res_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
+  GenerateAndSetAPDict(doc, annot_dict, &app, std::move(res_dict),
+                       /*is_text_markup=*/false);
+  return true;
+}
+
 bool GenerateInkAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const ByteString& blend_name) {
   RetainPtr<const CPDF_Array> ink_list = annot_dict->GetArrayFor("InkList");
   if (!ink_list || ink_list->IsEmpty()) {
@@ -1652,6 +1701,8 @@ bool CPDF_GenerateAP::GenerateAnnotAP(CPDF_Document* doc,
       return GenerateTextAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::UNDERLINE:
       return GenerateUnderlineAP(doc, annot_dict, blend_name);
+    case CPDF_Annot::Subtype::POLYGON:
+      return GeneratePolygonAP(doc, annot_dict, blend_name);
     default:
       return false;
   }
