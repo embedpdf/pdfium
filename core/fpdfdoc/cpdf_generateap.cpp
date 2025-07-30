@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <sstream>
 #include <utility>
+#include <cmath> 
 
 #include "constants/annotation_common.h"
 #include "constants/appearance.h"
@@ -40,6 +41,7 @@
 #include "core/fxcrt/fx_string_wrappers.h"
 #include "core/fxcrt/notreached.h"
 #include "core/fxge/cfx_renderdevice.h"
+#include "core/fxcrt/fx_system.h"
 
 namespace {
 
@@ -55,6 +57,121 @@ struct CPVT_Dash {
 };
 
 enum class PaintOperation { kStroke, kFill };
+
+constexpr float kArrowAngle = FXSYS_PI / 6.0f;
+constexpr float kArrowLenFactor = 9.0f;
+constexpr float kButtLenFactor = 6.0f;
+constexpr float kSlashLenFactor = 18.0f;
+
+// Return a unit‑length copy of `v`.  If the vector has zero length, fall back
+// to the X axis so that later maths cannot explode.
+ static CFX_PointF UnitVector(const CFX_PointF& v) {
+  float len = std::hypot(v.x, v.y);
+  if (len <= 0.0f)
+    return CFX_PointF(1.0f, 0.0f);
+  return CFX_PointF(v.x / len, v.y / len);
+}
+
+// Read one token from a /LE array and return it as a ByteString, accepting
+// both Name and String objects (some generators are sloppy).
+ static ByteString ReadLineEndingToken(const CPDF_Array* le, size_t idx) {
+  if (!le || idx >= le->size())
+    return ByteString();
+
+  RetainPtr<const CPDF_Object> obj = le->GetDirectObjectAt(idx);
+  if (!obj)
+    return ByteString();
+
+  if (const CPDF_Name* n = obj->AsName())
+    return n->GetString();
+
+  if (const CPDF_String* s = obj->AsString())
+    return s->GetString();
+
+  return ByteString();                // unsupported type
+}
+
+// Produce “q … Q” wrapper that translates + rotates local path so that:
+///   • the **tip** of the ending sits at `pos`
+///   • the **x‑axis** of the local coord points along the segment direction
+template<typename F> void EmitEndingWithAngle(fxcrt::ostringstream& out,
+                                               const CFX_PointF& pos,
+                                               float final_angle_rad,
+                                               const F& emitter) {
+  const float cos_a = cos(final_angle_rad);
+  const float sin_a = sin(final_angle_rad);
+
+  out << "q "
+      << cos_a << " " << sin_a << " "
+      << -sin_a << " " << cos_a << " "
+      << pos.x << " " << pos.y << " cm\n";
+  emitter();
+  out << "Q\n";
+}
+
+enum class ArrowStyle { kOpen, kClosed };
+
+static void EmitArrowPath(fxcrt::ostringstream& out,
+                          float stroke_w,
+                          ArrowStyle style,
+                          bool do_fill) {
+  const float len = kArrowLenFactor * stroke_w;
+  const float a   = kArrowAngle;          // 30°
+  const float x   = -len * std::cos(a);
+  const float y   =  len * std::sin(a);
+
+  if (style == ArrowStyle::kOpen) {
+    // OpenArrow / ROpenArrow
+    out << x << " " <<  y << " m 0 0 l "
+        << x << " " << -y << " l S\n";
+    return;
+  }
+
+  // ClosedArrow / RClosedArrow
+  out << "0 0 m " << x << " " << y << " l "
+      << x << " " << -y << " l "
+      << (do_fill ? "b\n"   // fill + stroke
+                  : "h S\n"); // just close and stroke (no fill)
+}
+
+void EmitCirclePath(fxcrt::ostringstream& out, float stroke_w, bool filled) {
+  const float r = (stroke_w * 5.0f) / 2.0f;
+  // This is a standard approximation for drawing a circle with Bezier curves.
+  constexpr float kL = 0.5523f;
+  const float d = kL * r;
+
+  out << r << " 0 m "
+      << r << " " << d << " " << d << " " << r << " 0 " << r << " c "
+      << -d << " " << r << " " << -r << " " << d << " " << -r << " 0 c "
+      << -r << " " << -d << " " << -d << " " << -r << " 0 " << -r << " c "
+      << d << " " << -r << " " << r << " " << -d << " " << r << " 0 c "
+      << (filled ? "B\n" : "S\n");
+}
+
+void EmitSquarePath(fxcrt::ostringstream& out, float stroke_w, bool filled) {
+  const float h = (stroke_w * 6.0f) / 2.0f;
+  out << -h << " " << -h << " m "
+      <<  h << " " << -h << " l "
+      <<  h << " " <<  h << " l "
+      << -h << " " <<  h << " l h "
+      << (filled ? "B\n" : "S\n");
+}
+
+void EmitDiamondPath(fxcrt::ostringstream& out, float stroke_w, bool filled) {
+  const float h = (stroke_w * 6.0f) / 2.0f;
+  out <<  "0 " << -h << " m "
+      <<  h << " 0 l "
+      <<  "0 " <<  h << " l "
+      << -h << " 0 l h "
+      << (filled ? "B\n" : "S\n");
+}
+
+void EmitButtOrSlashPath(fxcrt::ostringstream& out,
+                         float stroke_w,
+                         float len_factor) {
+  const float l = (stroke_w * len_factor) / 2.0f;
+  out << -l << " 0 m " << l << " 0 l S\n";
+}
 
 ByteString BlendModeToPDFName(BlendMode bm) {
   switch (bm) {
@@ -794,6 +911,106 @@ void GenerateAndSetAPDict(CPDF_Document* doc,
   ap_dict->SetNewFor<CPDF_Reference>("N", doc, normal_stream->GetObjNum());
 }
 
+// This helper encapsulates all logic for drawing the start and end caps.
+void GenerateLineEndings(fxcrt::ostringstream& ap,
+                         const std::vector<CFX_PointF>& points,
+                         const CPDF_Dictionary* annot_dict) {
+  if (points.size() < 2)
+    return;
+
+  // Get ending styles from the /LE array
+  CPDF_Annot::LineEnding start_ending = CPDF_Annot::LineEnding::kNone;
+  CPDF_Annot::LineEnding end_ending = CPDF_Annot::LineEnding::kNone;
+
+  if (RetainPtr<const CPDF_Array> le = annot_dict->GetArrayFor("LE"); le) {
+    if (le->size() >= 1)
+      start_ending = CPDF_Annot::StringToLineEnding(ReadLineEndingToken(le.Get(), 0));
+    if (le->size() >= 2)
+      end_ending = CPDF_Annot::StringToLineEnding(ReadLineEndingToken(le.Get(), 1));
+  }
+
+  if (start_ending == CPDF_Annot::LineEnding::kNone &&
+      end_ending == CPDF_Annot::LineEnding::kNone) {
+    return;
+  }
+
+  // Get styles needed for drawing the endings
+  const float border_w = GetBorderWidth(annot_dict);
+  RetainPtr<const CPDF_Array> interior_color = annot_dict->GetArrayFor("IC");
+  const bool has_fill = interior_color && !interior_color->IsEmpty();
+
+  // Lambda to emit a single ending with the correct transformation
+  auto emit_one = [&](const CPDF_Annot::LineEnding ending,
+                      const CFX_PointF& tip,
+                      const CFX_PointF& unit_dir) {
+    if (ending == CPDF_Annot::LineEnding::kNone ||
+        ending == CPDF_Annot::LineEnding::kUnknown)
+      return;
+
+    const float line_angle = atan2(unit_dir.y, unit_dir.x);
+    float final_angle = line_angle;
+
+    switch (ending) {
+      case CPDF_Annot::LineEnding::kButt:
+        final_angle += FXSYS_PI / 2.0f;
+        break;
+      case CPDF_Annot::LineEnding::kSlash:
+        final_angle -= FXSYS_PI / 1.5f;
+        break;
+      case CPDF_Annot::LineEnding::kRClosedArrow:
+      case CPDF_Annot::LineEnding::kROpenArrow:
+        final_angle += FXSYS_PI;
+        break;
+      default:
+        break;
+    }
+
+    EmitEndingWithAngle(ap, tip, final_angle, [&]() {
+      switch (ending) {
+        case CPDF_Annot::LineEnding::kClosedArrow:
+        case CPDF_Annot::LineEnding::kRClosedArrow:
+          EmitArrowPath(ap, border_w, ArrowStyle::kClosed, has_fill);
+          break;
+        case CPDF_Annot::LineEnding::kOpenArrow:
+        case CPDF_Annot::LineEnding::kROpenArrow:
+          EmitArrowPath(ap, border_w, ArrowStyle::kOpen, /*do_fill=*/false);
+          break;
+        case CPDF_Annot::LineEnding::kCircle:
+          EmitCirclePath(ap, border_w, has_fill);
+          break;
+        case CPDF_Annot::LineEnding::kSquare:
+          EmitSquarePath(ap, border_w, has_fill);
+          break;
+        case CPDF_Annot::LineEnding::kDiamond:
+          EmitDiamondPath(ap, border_w, has_fill);
+          break;
+        case CPDF_Annot::LineEnding::kButt:
+          EmitButtOrSlashPath(ap, border_w, kButtLenFactor);
+          break;
+        case CPDF_Annot::LineEnding::kSlash:
+          EmitButtOrSlashPath(ap, border_w, kSlashLenFactor);
+          break;
+        default:
+          break;
+      }
+    });
+  };
+
+  // Calculate directions and emit the start and end caps
+  CFX_PointF start_tip = points.front();
+  CFX_PointF end_tip = points.back();
+
+  // The direction for the start ending is reversed from the first segment.
+  CFX_PointF first_segment_dir = UnitVector(points[1] - points[0]);
+  CFX_PointF start_dir_rev = {-first_segment_dir.x, -first_segment_dir.y};
+
+  // The direction for the end ending is forward along the last segment.
+  CFX_PointF end_dir = UnitVector(points.back() - points[points.size() - 2]);
+
+  emit_one(start_ending, start_tip, start_dir_rev);
+  emit_one(end_ending, end_tip, end_dir);
+}
+
 ByteString GenerateTextFieldAP(const CPDF_Dictionary* annot_dict,
                                const CFX_FloatRect& body_rect,
                                float font_size,
@@ -1241,6 +1458,99 @@ bool GeneratePolygonAP(CPDF_Document* doc,
   auto gs_dict  = GenerateExtGStateDict(*annot_dict, blend_name);
   auto res_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
   GenerateAndSetAPDict(doc, annot_dict, &app, std::move(res_dict),
+                       /*is_text_markup=*/false);
+  return true;
+}
+
+bool GenerateLineAP(CPDF_Document* doc,
+                    CPDF_Dictionary* annot_dict,
+                    const ByteString& blend_name) {
+  RetainPtr<const CPDF_Array> L = annot_dict->GetArrayFor(pdfium::annotation::kL);
+  if (!L || L->size() < 4)
+    return false;
+
+  std::vector<CFX_PointF> points;
+  points.push_back({L->GetFloatAt(0), L->GetFloatAt(1)});
+  points.push_back({L->GetFloatAt(2), L->GetFloatAt(3)});
+
+  fxcrt::ostringstream ap;
+  ap << "/" << kGSDictName << " gs\n";
+
+  // Set colors and border styles.
+  RetainPtr<const CPDF_Array> interior_color = annot_dict->GetArrayFor("IC");
+  if (interior_color && !interior_color->IsEmpty()) {
+    ap << GetColorStringWithDefault(interior_color.Get(), {}, PaintOperation::kFill);
+  }
+  ap << GetColorStringWithDefault(
+      annot_dict->GetArrayFor(pdfium::annotation::kC).Get(),
+      CFX_Color(CFX_Color::Type::kRGB, 0, 0, 0),
+      PaintOperation::kStroke);
+
+  const float border_w = GetBorderWidth(annot_dict);
+  if (border_w > 0) {
+    ap << border_w << " w " << GetDashPatternString(annot_dict);
+  }
+
+  // Draw the main line segment.
+  ap << points[0].x << " " << points[0].y << " m "
+     << points[1].x << " " << points[1].y << " l S\n";
+
+  // Draw the endings.
+  GenerateLineEndings(ap, points, annot_dict);
+
+  // Finalize and set the Appearance Stream.
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
+  auto res_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
+  GenerateAndSetAPDict(doc, annot_dict, &ap, std::move(res_dict),
+                       /*is_text_markup=*/false);
+  return true;
+}
+
+bool GeneratePolyLineAP(CPDF_Document* doc,
+                        CPDF_Dictionary* annot_dict,
+                        const ByteString& blend_name) {
+  RetainPtr<const CPDF_Array> verts =
+      annot_dict->GetArrayFor(pdfium::annotation::kVertices);
+  if (!verts || verts->size() < 4)
+    return false;
+
+  std::vector<CFX_PointF> points;
+  for (size_t i = 0; i + 1 < verts->size(); i += 2) {
+    points.push_back({verts->GetFloatAt(i), verts->GetFloatAt(i + 1)});
+  }
+
+  fxcrt::ostringstream ap;
+  ap << "/" << kGSDictName << " gs\n";
+
+  // Set colors and border styles.
+  RetainPtr<const CPDF_Array> interior_color = annot_dict->GetArrayFor("IC");
+  if (interior_color && !interior_color->IsEmpty()) {
+    ap << GetColorStringWithDefault(interior_color.Get(), {}, PaintOperation::kFill);
+  }
+  ap << GetColorStringWithDefault(
+      annot_dict->GetArrayFor(pdfium::annotation::kC).Get(),
+      CFX_Color(CFX_Color::Type::kRGB, 0, 0, 0),
+      PaintOperation::kStroke);
+
+  const float border_w = GetBorderWidth(annot_dict);
+  if (border_w > 0) {
+    ap << border_w << " w " << GetDashPatternString(annot_dict);
+  }
+
+  // Draw the main polyline path.
+  ap << points[0].x << " " << points[0].y << " m ";
+  for (size_t i = 1; i < points.size(); ++i) {
+    ap << points[i].x << " " << points[i].y << " l ";
+  }
+  ap << "S\n";
+
+  // Draw the endings.
+  GenerateLineEndings(ap, points, annot_dict);
+
+  // Finalize and set the Appearance Stream.
+  auto gs_dict = GenerateExtGStateDict(*annot_dict, blend_name);
+  auto res_dict = GenerateResourcesDict(doc, std::move(gs_dict), nullptr);
+  GenerateAndSetAPDict(doc, annot_dict, &ap, std::move(res_dict),
                        /*is_text_markup=*/false);
   return true;
 }
@@ -1703,6 +2013,10 @@ bool CPDF_GenerateAP::GenerateAnnotAP(CPDF_Document* doc,
       return GenerateUnderlineAP(doc, annot_dict, blend_name);
     case CPDF_Annot::Subtype::POLYGON:
       return GeneratePolygonAP(doc, annot_dict, blend_name);
+    case CPDF_Annot::Subtype::POLYLINE:
+      return GeneratePolyLineAP(doc, annot_dict, blend_name);
+    case CPDF_Annot::Subtype::LINE:
+      return GenerateLineAP(doc, annot_dict, blend_name);
     default:
       return false;
   }
