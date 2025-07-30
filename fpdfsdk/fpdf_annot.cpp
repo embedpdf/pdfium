@@ -545,6 +545,7 @@ FPDFAnnot_IsSupportedSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
     case FPDF_ANNOT_UNDERLINE:
     case FPDF_ANNOT_POLYGON:
     case FPDF_ANNOT_POLYLINE:
+    case FPDF_ANNOT_LINE:
       return true;
     default:
       return false;
@@ -2520,6 +2521,37 @@ EPDFAnnot_SetVertices(FPDF_ANNOTATION annot,
     verts->AppendNew<CPDF_Number>(pts[i].x);
     verts->AppendNew<CPDF_Number>(pts[i].y);
   }
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetLine(FPDF_ANNOTATION annot,
+                  const FS_POINTF* start,
+                  const FS_POINTF* end) {
+  if (!annot || !start || !end)
+    return false;
+
+  if (FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_LINE)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  // (Re‑)create the /L array: [ x1 y1 x2 y2 ]
+  RetainPtr<CPDF_Array> line_arr =
+      dict->GetMutableArrayFor(pdfium::annotation::kL);
+  if (line_arr)
+    line_arr->Clear();
+  else
+    line_arr = dict->SetNewFor<CPDF_Array>(pdfium::annotation::kL);
+
+  line_arr->AppendNew<CPDF_Number>(start->x);
+  line_arr->AppendNew<CPDF_Number>(start->y);
+  line_arr->AppendNew<CPDF_Number>(end->x);
+  line_arr->AppendNew<CPDF_Number>(end->y);
 
   return true;
 }

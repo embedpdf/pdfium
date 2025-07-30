@@ -1308,6 +1308,20 @@ EPDFAnnot_GetLineEndings(FPDF_ANNOTATION annot,
                        const FS_POINTF* points,
                        unsigned long count);
 
+// Experimental EmbedPDF Extension API.
+// Set (or create) the two end‑points of a **Line** annotation
+// by writing a new /L array `[ x1 y1 x2 y2 ]`.
+//
+//   annot    - handle to an annotation.
+//   start    - pointer to an `FS_POINTF` holding the new start‑point.
+//   end      - pointer to an `FS_POINTF` holding the new end‑point.
+//
+// Returns true on success.
+ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+ EPDFAnnot_SetLine(FPDF_ANNOTATION annot,
+                   const FS_POINTF* start,
+                   const FS_POINTF* end);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
