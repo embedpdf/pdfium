@@ -107,7 +107,7 @@ typedef enum FPDF_ANNOT_BORDER_STYLE {
     FPDF_ANNOT_BS_CLOUDY
 } FPDF_ANNOT_BORDER_STYLE;
 
-typedef enum {
+typedef enum FPDF_BLENDMODE {
   FPDF_BLENDMODE_Normal = 0,
   FPDF_BLENDMODE_Multiply,
   FPDF_BLENDMODE_Screen,
@@ -127,7 +127,7 @@ typedef enum {
   FPDF_BLENDMODE_LAST = FPDF_BLENDMODE_Luminosity
 } FPDF_BLENDMODE;
 
-typedef enum {
+typedef enum FPDF_ANNOT_LINE_END {
   FPDF_ANNOT_LE_None = 0,
   FPDF_ANNOT_LE_Square,
   FPDF_ANNOT_LE_Circle,
@@ -140,6 +140,30 @@ typedef enum {
   FPDF_ANNOT_LE_Slash,
   FPDF_ANNOT_LE_Unknown
 } FPDF_ANNOT_LINE_END;
+
+typedef enum FPDF_STANDARD_FONT {
+  FPDF_FONT_UNKNOWN = -1,
+  FPDF_FONT_COURIER = 0,
+  FPDF_FONT_COURIER_BOLD,
+  FPDF_FONT_COURIER_BOLDITALIC,
+  FPDF_FONT_COURIER_ITALIC,
+  FPDF_FONT_HELVETICA,
+  FPDF_FONT_HELVETICA_BOLD,
+  FPDF_FONT_HELVETICA_BOLDITALIC,
+  FPDF_FONT_HELVETICA_ITALIC,
+  FPDF_FONT_TIMES_ROMAN,
+  FPDF_FONT_TIMES_BOLD,
+  FPDF_FONT_TIMES_BOLDITALIC,
+  FPDF_FONT_TIMES_ITALIC,
+  FPDF_FONT_SYMBOL,
+  FPDF_FONT_ZAPFDINGBATS
+} FPDF_STANDARD_FONT;
+
+typedef enum FPDF_TEXT_ALIGNMENT {
+  FPDF_TEXT_ALIGNMENT_LEFT = 0,
+  FPDF_TEXT_ALIGNMENT_CENTER = 1,
+  FPDF_TEXT_ALIGNMENT_RIGHT = 2
+} FPDF_TEXT_ALIGNMENT;
 
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
@@ -1092,15 +1116,14 @@ FPDFAnnot_AddFileAttachment(FPDF_ANNOTATION annot, FPDF_WIDESTRING name);
 //   annot    - handle to an annotation.
 //   type     - type of the color requested.
 //   R, G, B  - buffer to hold the RGB value of the color. Ranges from 0 to 255.
-//   A        - buffer to hold the opacity. Ranges from 0 to 255.
 //
 // Returns true if successful.
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
-                                                       FPDFANNOT_COLORTYPE type,
-                                                       unsigned int* R,
-                                                       unsigned int* G,
-                                                       unsigned int* B,
-                                                       unsigned int* A);
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
+                   FPDFANNOT_COLORTYPE type,
+                   unsigned int* R,
+                   unsigned int* G,
+                   unsigned int* B);
 
 // Experimental EmbedPDF Extension API.
 // Set the color of an annotation.
@@ -1108,15 +1131,36 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
 //   annot    - handle to an annotation.
 //   type     - type of the color to be set.
 //   R, G, B  - buffer to hold the RGB value of the color. Ranges from 0 to 255.
-//   A        - buffer to hold the opacity. Ranges from 0 to 255.
 //
 // Returns true if successful.
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
-                                                       FPDFANNOT_COLORTYPE type,
-                                                       unsigned int R,
-                                                       unsigned int G,
-                                                       unsigned int B,
-                                                       unsigned int A);
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
+                   FPDFANNOT_COLORTYPE type,
+                   unsigned int R,
+                   unsigned int G,
+                   unsigned int B);
+
+// Experimental EmbedPDF Extension API.
+// Set the opacity of an annotaion.
+//
+// annot - handle to an annotation.
+// alpha - the opacity. Ranges from 0 to 255.
+//
+// Returns true if succesful.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetOpacity(FPDF_ANNOTATION annot,
+                     unsigned int alpha /* 0 = transparent … 255 = opaque */);
+
+// Experimental EmbedPDF Extension API.
+// Get the opacity of an annotation.
+//
+// annot - handle to an annotation.
+// alpha - buffer to hold the opacity. Ranges from 0 to 255.
+//
+// Returns true if succesful.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetOpacity(FPDF_ANNOTATION annot,
+                     unsigned int* alpha /* 0-255 */);
 
 // Experimental EmbedPDF Extension API.
 // Clear the color of an annotation.
@@ -1321,6 +1365,60 @@ EPDFAnnot_GetLineEndings(FPDF_ANNOTATION annot,
  EPDFAnnot_SetLine(FPDF_ANNOTATION annot,
                    const FS_POINTF* start,
                    const FS_POINTF* end);
+
+// Experimental EmbedPDF Extension API.   
+// Set the default appearance of a FreeText annotation.
+//
+//   annot    - handle to an annotation.
+//   font     - the font to be set.
+//   font_size - the font size to be set.
+//   R, G, B  - the color to be set.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetDefaultAppearance(FPDF_ANNOTATION annot,
+                               FPDF_STANDARD_FONT font,
+                               float font_size,
+                               unsigned int R,
+                               unsigned int G,
+                               unsigned int B);
+
+// Experimental EmbedPDF Extension API.
+// Get the default appearance of a FreeText annotation.
+//
+//   annot    - handle to an annotation.
+//   font     - receives the font.
+//   font_size - receives the font size.
+//   R, G, B  - receives the color.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetDefaultAppearance(FPDF_ANNOTATION annot,
+                               FPDF_STANDARD_FONT* font,
+                               float* font_size,
+                               unsigned int* R,
+                               unsigned int* G,
+                               unsigned int* B);
+
+// Experimental EmbedPDF Extension API.
+// Set the text alignment of a FreeText annotation.
+//
+//   annot    - handle to an annotation.
+//   alignment - the text alignment to be set.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFAnnot_SetTextAlignment(FPDF_ANNOTATION annot, 
+                           FPDF_TEXT_ALIGNMENT alignment);
+
+// Experimental EmbedPDF Extension API.
+// Get the text alignment of a FreeText annotation.
+//
+//   annot    - handle to an annotation.
+//
+// Returns the text alignment.
+FPDF_EXPORT FPDF_TEXT_ALIGNMENT FPDF_CALLCONV 
+EPDFAnnot_GetTextAlignment(FPDF_ANNOTATION annot);
 
 #ifdef __cplusplus
 }  // extern "C"

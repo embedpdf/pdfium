@@ -516,6 +516,85 @@ CPDF_Annot::LineEnding CPDF_Annot::StringToLineEnding(const ByteString& n) {
   return LineEnding::kUnknown;
 }
 
+CPDF_Annot::StandardFont CPDF_Annot::StringToStandardFont(const ByteString& name) {
+  if (name == "Courier") {
+    return StandardFont::kCourier;
+  }
+  if (name == "Courier-Bold") {
+    return StandardFont::kCourier_Bold;
+  }
+  if (name == "Courier-BoldOblique") {
+    return StandardFont::kCourier_BoldOblique;
+  }
+  if (name == "Courier-Oblique") {
+    return StandardFont::kCourier_Oblique;
+  }
+  if (name == "Helvetica") {
+    return StandardFont::kHelvetica;
+  }
+  if (name == "Helvetica-Bold") {
+    return StandardFont::kHelvetica_Bold;
+  }
+  if (name == "Helvetica-BoldOblique") {
+    return StandardFont::kHelvetica_BoldOblique;
+  }
+  if (name == "Times-Roman") {
+    return StandardFont::kTimes_Roman;
+  }
+  if (name == "Times-Bold") {
+    return StandardFont::kTimes_Bold;
+  }
+  if (name == "Times-BoldItalic") {
+    return StandardFont::kTimes_BoldItalic;
+  }
+  if (name == "Times-Italic") {
+    return StandardFont::kTimes_Italic;
+  }
+  if (name == "Symbol") {
+    return StandardFont::kSymbol;
+  }
+  if (name == "ZapfDingbats") {
+    return StandardFont::kZapfDingbats;
+  }
+  return StandardFont::kUnknown;
+}
+
+ByteString CPDF_Annot::StandardFontToString(CPDF_Annot::StandardFont font) {
+  switch (font) {
+    case StandardFont::kCourier:
+      return "Courier";
+    case StandardFont::kCourier_Bold:
+      return "Courier-Bold";
+    case StandardFont::kCourier_BoldOblique: 
+      return "Courier-BoldOblique";
+    case StandardFont::kCourier_Oblique:
+      return "Courier-Oblique";
+    case StandardFont::kHelvetica:
+      return "Helvetica";
+    case StandardFont::kHelvetica_Bold:
+      return "Helvetica-Bold";
+    case StandardFont::kHelvetica_BoldOblique:
+      return "Helvetica-BoldOblique";
+    case StandardFont::kHelvetica_Oblique:
+      return "Helvetica-Oblique";
+    case StandardFont::kTimes_Roman:
+      return "Times-Roman";
+    case StandardFont::kTimes_Bold:
+      return "Times-Bold";
+    case StandardFont::kTimes_BoldItalic:
+      return "Times-BoldItalic";
+    case StandardFont::kTimes_Italic:
+      return "Times-Italic";
+    case StandardFont::kSymbol:
+      return "Symbol";
+    case StandardFont::kZapfDingbats:
+      return "ZapfDingbats";
+    case StandardFont::kUnknown:
+      break;
+  }
+  return ByteString();
+}
+
 // static
 CPDF_Annot::BorderStyle CPDF_Annot::StringToBorderStyle(
     const ByteString& sStyle) {

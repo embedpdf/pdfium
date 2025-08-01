@@ -37,6 +37,12 @@ class CPDF_GenerateAP {
                                                  CPDF_Dictionary* annot_dict,
                                                  const CFX_Color& color);
 
+  static bool UpdateDefaultAppearance(CPDF_Document* doc,
+                                      CPDF_Dictionary* annot_dict,
+                                      CPDF_Annot::StandardFont font,
+                                      float font_size,
+                                      const CFX_Color& color);
+
   CPDF_GenerateAP() = delete;
   CPDF_GenerateAP(const CPDF_GenerateAP&) = delete;
   CPDF_GenerateAP& operator=(const CPDF_GenerateAP&) = delete;

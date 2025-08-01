@@ -9,6 +9,7 @@
 #include <sstream>
 #include <utility>
 #include <vector>
+#include <algorithm>
 
 #include "constants/annotation_common.h"
 #include "core/fpdfapi/edit/cpdf_pagecontentgenerator.h"
@@ -255,38 +256,96 @@ static_assert(static_cast<int>(BlendMode::kLuminosity) ==
 
 // These checks ensure the consistency of line ending values across core/ and public.
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kNone) ==
-              FPDF_ANNOT_LE_None,
-          "LineEnding::kNone mismatch");
+                  FPDF_ANNOT_LE_None,
+              "LineEnding::kNone mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kSquare) ==
-              FPDF_ANNOT_LE_Square,
-          "LineEnding::kSquare mismatch");
+                  FPDF_ANNOT_LE_Square,
+              "LineEnding::kSquare mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kCircle) ==
-              FPDF_ANNOT_LE_Circle,
-          "LineEnding::kCircle mismatch");
+                  FPDF_ANNOT_LE_Circle,
+              "LineEnding::kCircle mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kDiamond) ==
-              FPDF_ANNOT_LE_Diamond,
-          "LineEnding::kDiamond mismatch");
+                  FPDF_ANNOT_LE_Diamond,
+              "LineEnding::kDiamond mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kOpenArrow) ==
-              FPDF_ANNOT_LE_OpenArrow,
-          "LineEnding::kOpenArrow mismatch");
+                  FPDF_ANNOT_LE_OpenArrow,
+              "LineEnding::kOpenArrow mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kClosedArrow) ==
-              FPDF_ANNOT_LE_ClosedArrow,
-          "LineEnding::kClosedArrow mismatch");
+                  FPDF_ANNOT_LE_ClosedArrow,
+              "LineEnding::kClosedArrow mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kButt) ==
-              FPDF_ANNOT_LE_Butt,
-          "LineEnding::kButt mismatch");
+                  FPDF_ANNOT_LE_Butt,
+              "LineEnding::kButt mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kROpenArrow) ==
-              FPDF_ANNOT_LE_ROpenArrow,
-          "LineEnding::kROpenArrow mismatch");
+                  FPDF_ANNOT_LE_ROpenArrow,
+              "LineEnding::kROpenArrow mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kRClosedArrow) ==
-              FPDF_ANNOT_LE_RClosedArrow,
-          "LineEnding::kRClosedArrow mismatch");
+                  FPDF_ANNOT_LE_RClosedArrow,
+              "LineEnding::kRClosedArrow mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kSlash) ==
-              FPDF_ANNOT_LE_Slash,
-          "LineEnding::kSlash mismatch");
+                  FPDF_ANNOT_LE_Slash,
+              "LineEnding::kSlash mismatch");
 static_assert(static_cast<int>(CPDF_Annot::LineEnding::kUnknown) ==
-              FPDF_ANNOT_LE_Unknown,
-          "LineEnding::kUnknown mismatch");
+                  FPDF_ANNOT_LE_Unknown,
+              "LineEnding::kUnknown mismatch");
+
+// These checks ensure the consistency of standard font values across core/ and public.
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kCourier) == 
+                  FPDF_FONT_COURIER, 
+              "CPDF_Annot::StandardFont::kCourier mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kCourier_Bold) == 
+                  FPDF_FONT_COURIER_BOLD, 
+              "CPDF_Annot::StandardFont::kCourier_Bold mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kCourier_BoldOblique) == 
+                  FPDF_FONT_COURIER_BOLDITALIC, 
+              "CPDF_Annot::StandardFont::kCourier_BoldOblique mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kCourier_Oblique) == 
+                  FPDF_FONT_COURIER_ITALIC, 
+              "CPDF_Annot::StandardFont::kCourier_Oblique mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kHelvetica) == 
+                  FPDF_FONT_HELVETICA, 
+              "CPDF_Annot::StandardFont::kHelvetica mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kHelvetica_Bold) == 
+                  FPDF_FONT_HELVETICA_BOLD, 
+              "CPDF_Annot::StandardFont::kHelvetica_Bold mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kHelvetica_BoldOblique) == 
+                  FPDF_FONT_HELVETICA_BOLDITALIC, 
+              "CPDF_Annot::StandardFont::kHelvetica_BoldOblique mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kHelvetica_Oblique) == 
+                  FPDF_FONT_HELVETICA_ITALIC, 
+              "CPDF_Annot::StandardFont::kHelvetica_Oblique mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kTimes_Roman) == 
+                  FPDF_FONT_TIMES_ROMAN, 
+              "CPDF_Annot::StandardFont::kTimes_Roman mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kTimes_Bold) == 
+                  FPDF_FONT_TIMES_BOLD, 
+              "CPDF_Annot::StandardFont::kTimes_Bold mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kTimes_BoldItalic) == 
+                  FPDF_FONT_TIMES_BOLDITALIC, 
+              "CPDF_Annot::StandardFont::kTimes_BoldItalic mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kTimes_Italic) == 
+                  FPDF_FONT_TIMES_ITALIC, 
+              "CPDF_Annot::StandardFont::kTimes_Italic mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kSymbol) == 
+                  FPDF_FONT_SYMBOL, 
+              "CPDF_Annot::StandardFont::kSymbol mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kZapfDingbats) == 
+                  FPDF_FONT_ZAPFDINGBATS, 
+              "CPDF_Annot::StandardFont::kZapfDingbats mismatch");
+static_assert(static_cast<int>(CPDF_Annot::StandardFont::kUnknown) == 
+                  FPDF_FONT_UNKNOWN, 
+              "CPDF_Annot::StandardFont::kUnknown mismatch");
+
+// These checks ensure consistency between the public API and internal enums.
+static_assert(static_cast<int>(CPDF_Annot::TextAlignment::kLeft) == 
+                  FPDF_TEXT_ALIGNMENT_LEFT, 
+              "CPDF_Annot::TextAlignment::kLeft mismatch");
+static_assert(static_cast<int>(CPDF_Annot::TextAlignment::kCenter) == 
+                  FPDF_TEXT_ALIGNMENT_CENTER, 
+              "CPDF_Annot::TextAlignment::kCenter mismatch");
+static_assert(static_cast<int>(CPDF_Annot::TextAlignment::kRight) == 
+                  FPDF_TEXT_ALIGNMENT_RIGHT, 
+              "CPDF_Annot::TextAlignment::kRight mismatch");
 
 bool HasAPStream(CPDF_Dictionary* pAnnotDict) {
   return !!GetAnnotAP(pAnnotDict, CPDF_Annot::AppearanceMode::kNormal);
@@ -1923,24 +1982,16 @@ FPDFAnnot_AddFileAttachment(FPDF_ANNOTATION annot, FPDF_WIDESTRING name) {
   return FPDFAttachmentFromCPDFObject(fs_obj);
 }
 
-// EmbedPDF Extension: Set the color of an annotation. Possible even if the appearance stream is already defined.
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
-                                                       FPDFANNOT_COLORTYPE type,
-                                                       unsigned int R,
-                                                       unsigned int G,
-                                                       unsigned int B,
-                                                       unsigned int A) {
-  RetainPtr<CPDF_Dictionary> pAnnotDict =
-      GetMutableAnnotDictFromFPDFAnnotation(annot);
-
-  if (!pAnnotDict || R > 255 || G > 255 || B > 255 || A > 255) {
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
+                   FPDFANNOT_COLORTYPE type,
+                   unsigned int R,
+                   unsigned int G,
+                   unsigned int B) {
+  RetainPtr<CPDF_Dictionary> pAnnotDict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict || R > 255 || G > 255 || B > 255)
     return false;
-  }
 
-  // Set the opacity of the annotation.
-  pAnnotDict->SetNewFor<CPDF_Number>("CA", A / 255.f);
-
-  // Set the color of the annotation.
   ByteStringView key = type == FPDFANNOT_COLORTYPE_InteriorColor ? "IC" : "C";
   RetainPtr<CPDF_Array> pColor = pAnnotDict->GetMutableArrayFor(key);
   if (pColor) {
@@ -1956,36 +2007,23 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetColor(FPDF_ANNOTATION annot,
   return true;
 }
 
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
-                                                       FPDFANNOT_COLORTYPE type,
-                                                       unsigned int* R,
-                                                       unsigned int* G,
-                                                       unsigned int* B,
-                                                       unsigned int* A) {
-  RetainPtr<CPDF_Dictionary> pAnnotDict =
-      GetMutableAnnotDictFromFPDFAnnotation(annot);
-
-  if (!pAnnotDict || !R || !G || !B || !A) {
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
+                   FPDFANNOT_COLORTYPE type,
+                   unsigned int* R,
+                   unsigned int* G,
+                   unsigned int* B) {
+  if (!R || !G || !B)
     return false;
-  }
 
-  RetainPtr<const CPDF_Array> pColor = pAnnotDict->GetArrayFor(
-      type == FPDFANNOT_COLORTYPE_InteriorColor ? "IC" : "C");
-  *A = (pAnnotDict->KeyExist("CA") ? pAnnotDict->GetFloatFor("CA") : 1) * 255.f;
-  if (!pColor) {
-    // Use default color. The default colors must be consistent with the ones
-    // used to generate AP. See calls to GetColorStringWithDefault() in
-    // CPDF_GenerateAP::Generate*AP().
-    if (pAnnotDict->GetNameFor(pdfium::annotation::kSubtype) == "Highlight") {
-      *R = 255;
-      *G = 255;
-      *B = 0;
-
-      return true;
-    }
-    // Otherwise, signal "no colour set".
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
     return false;
-  }
+
+  RetainPtr<const CPDF_Array> pColor =
+      dict->GetArrayFor((type == FPDFANNOT_COLORTYPE_InteriorColor) ? "IC" : "C");
+  if (!pColor)
+    return false;                    // “no colour set”
 
   CFX_Color color = fpdfdoc::CFXColorFromArray(*pColor);
   switch (color.nColorType) {
@@ -1995,21 +2033,15 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetColor(FPDF_ANNOTATION annot,
       *B = color.fColor3 * 255.f;
       break;
     case CFX_Color::Type::kGray:
-      *R = 255.f * color.fColor1;
-      *G = 255.f * color.fColor1;
-      *B = 255.f * color.fColor1;
+      *R = *G = *B = color.fColor1 * 255.f;
       break;
-    case CFX_Color::Type::kCMYK:
+    case CFX_Color::Type::kCMYK:     // convert roughly
       *R = 255.f * (1 - color.fColor1) * (1 - color.fColor4);
       *G = 255.f * (1 - color.fColor2) * (1 - color.fColor4);
       *B = 255.f * (1 - color.fColor3) * (1 - color.fColor4);
       break;
-    case CFX_Color::Type::kTransparent:
-      *R = 0;
-      *G = 0;
-      *B = 0;
-      *A = 0;  // explicitly transparent
-      break;
+    default:
+      return false;
   }
   return true;
 }
@@ -2023,10 +2055,33 @@ EPDFAnnot_ClearColor(FPDF_ANNOTATION annot, FPDFANNOT_COLORTYPE type) {
   ByteStringView key = type == FPDFANNOT_COLORTYPE_InteriorColor ? "IC" : "C";
   dict->RemoveFor(key);
 
-  // If neither C nor IC remain, opacity CA is pointless; drop if you want.
-  if (!dict->KeyExist("C") && !dict->KeyExist("IC"))
-    dict->RemoveFor("CA");
+  return true;
+}
 
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetOpacity(FPDF_ANNOTATION annot, unsigned int alpha) {
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict || alpha > 255)
+    return false;
+
+  if (alpha == 255) {
+    dict->RemoveFor("CA");
+  } else {
+    dict->SetNewFor<CPDF_Number>("CA", alpha / 255.f);
+  }
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetOpacity(FPDF_ANNOTATION annot, unsigned int* alpha) {
+  if (!alpha)
+    return false;
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  float ca = dict->KeyExist("CA") ? dict->GetFloatFor("CA") : 1.0f;
+  *alpha = std::clamp(ca, 0.f, 1.f) * 255.f + 0.5f;
   return true;
 }
 
@@ -2554,4 +2609,167 @@ EPDFAnnot_SetLine(FPDF_ANNOTATION annot,
   line_arr->AppendNew<CPDF_Number>(end->y);
 
   return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetDefaultAppearance(FPDF_ANNOTATION annot,
+                               FPDF_STANDARD_FONT font,
+                               float font_size,
+                               unsigned int R,
+                               unsigned int G,
+                               unsigned int B) {
+  CPDF_AnnotContext* context = CPDFAnnotContextFromFPDFAnnotation(annot);
+  if (!context) {
+    return false;
+  }
+
+  RetainPtr<CPDF_Dictionary> annot_dict = context->GetMutableAnnotDict();
+  if (!annot_dict || FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_FREETEXT) {
+    return false;
+  }
+
+  CPDF_Document* doc = context->GetPage()->GetDocument();
+  if (!doc) {
+    return false;
+  }
+
+  // Validate parameters.
+  if (font < FPDF_FONT_COURIER || font > FPDF_FONT_ZAPFDINGBATS ||
+      font_size < 0 || R > 255 || G > 255 || B > 255) {
+    return false;
+  }
+
+  auto internal_font = static_cast<CPDF_Annot::StandardFont>(font);
+
+  // The type-safe enum is passed to the helper.
+  bool success = CPDF_GenerateAP::UpdateDefaultAppearance(
+      doc, annot_dict.Get(), internal_font, font_size, CFX_Color(R, G, B));
+
+  if (success) {
+    annot_dict->RemoveFor(pdfium::annotation::kAP);
+  }
+
+  return success;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetDefaultAppearance(FPDF_ANNOTATION annot,
+                               FPDF_STANDARD_FONT* font,
+                               float* font_size,
+                               unsigned int* R,
+                               unsigned int* G,
+                               unsigned int* B) {
+  // Standard validation for output parameters and annotation handle.
+  if (!font || !font_size || !R || !G || !B) {
+    return false;
+  }
+  CPDF_AnnotContext* context = CPDFAnnotContextFromFPDFAnnotation(annot);
+  if (!context) {
+    return false;
+  }
+  RetainPtr<CPDF_Dictionary> annot_dict = context->GetMutableAnnotDict();
+  if (!annot_dict || FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_FREETEXT) {
+    return false;
+  }
+  CPDF_Document* doc = context->GetPage()->GetDocument();
+  if (!doc) {
+    return false;
+  }
+
+  // Get AcroForm for inherited /DA and /DR.
+  RetainPtr<const CPDF_Dictionary> root_dict = doc->GetMutableRoot();
+  RetainPtr<const CPDF_Dictionary> acroform_dict =
+      root_dict ? root_dict->GetDictFor("AcroForm") : nullptr;
+
+  // Parse the /DA string, inheriting from AcroForm if necessary.
+  CPDF_DefaultAppearance da(annot_dict.Get(), acroform_dict.Get());
+
+  // Get Font and Font Size
+  std::optional<CPDF_DefaultAppearance::FontNameAndSize> font_info = da.GetFont();
+  if (!font_info.has_value()) {
+    return false; // Hard fail: /DA string must specify a font.
+  }
+  *font_size = font_info.value().size;
+  ByteString font_name = font_info.value().name;
+
+  if (!font_name.IsEmpty()) {
+    *font = static_cast<FPDF_STANDARD_FONT>(
+        CPDF_Annot::StringToStandardFont(font_name));
+  } else {
+    *font = FPDF_FONT_UNKNOWN;
+  }
+
+  // Get Color (with default fallback)
+  std::optional<CFX_Color::TypeAndARGB> color_info = da.GetColorARGB();
+  if (color_info.has_value()) {
+    // If color is found, use it.
+    uint32_t argb = color_info.value().argb;
+    *R = (argb >> 16) & 0xFF;
+    *G = (argb >> 8) & 0xFF;
+    *B = argb & 0xFF;
+  } else {
+    // If no color is defined in the /DA string, provide black as the default.
+    *R = 0;
+    *G = 0;
+    *B = 0;
+  }
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetTextAlignment(FPDF_ANNOTATION annot, FPDF_TEXT_ALIGNMENT alignment) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!annot_dict) {
+    return false;
+  }
+
+  // This property is only valid for FreeText annotations.
+  if (FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_FREETEXT) {
+    return false;
+  }
+
+  // Validate the enum range to ensure a valid value is passed.
+  if (alignment < FPDF_TEXT_ALIGNMENT_LEFT || alignment > FPDF_TEXT_ALIGNMENT_RIGHT) {
+    return false;
+  }
+
+  // Set the /Q key in the annotation dictionary to the integer value of the enum.
+  annot_dict->SetNewFor<CPDF_Number>("Q", static_cast<int>(alignment));
+
+  // The change to /Q directly affects the visual layout of the text.
+  // We MUST remove the old appearance stream to signal that it is now
+  // invalid and needs to be regenerated.
+  annot_dict->RemoveFor(pdfium::annotation::kAP);
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_TEXT_ALIGNMENT FPDF_CALLCONV
+EPDFAnnot_GetTextAlignment(FPDF_ANNOTATION annot) {
+  // The default alignment is left (0) if not specified.
+  constexpr FPDF_TEXT_ALIGNMENT kDefaultAlignment = FPDF_TEXT_ALIGNMENT_LEFT;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!annot_dict) {
+    return kDefaultAlignment;
+  }
+
+  // This property is only valid for FreeText annotations.
+  if (FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_FREETEXT) {
+    return kDefaultAlignment;
+  }
+
+  // GetIntegerFor() conveniently returns 0 if the key doesn't exist,
+  // which matches the PDF specification's default.
+  int alignment_value = annot_dict->GetIntegerFor("Q");
+
+  // Validate the value is within the known enum range before casting.
+  if (alignment_value >= FPDF_TEXT_ALIGNMENT_LEFT &&
+      alignment_value <= FPDF_TEXT_ALIGNMENT_RIGHT) {
+    return static_cast<FPDF_TEXT_ALIGNMENT>(alignment_value);
+  }
+
+  return kDefaultAlignment;
 }

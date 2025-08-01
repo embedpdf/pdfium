@@ -87,12 +87,38 @@ class CPDF_Annot {
     kUnknown
   };
 
+  enum class StandardFont {
+    kUnknown = -1,
+    kCourier,
+    kCourier_Bold,
+    kCourier_BoldOblique,
+    kCourier_Oblique,
+    kHelvetica,
+    kHelvetica_Bold,
+    kHelvetica_BoldOblique,
+    kHelvetica_Oblique,
+    kTimes_Roman,
+    kTimes_Bold,
+    kTimes_BoldItalic,
+    kTimes_Italic,
+    kSymbol,
+    kZapfDingbats
+  };
+
+  enum class TextAlignment {
+    kLeft = 0,
+    kCenter = 1,
+    kRight = 2
+  };
+
   static BorderStyle StringToBorderStyle(const ByteString& sStyle);
   static ByteString BorderStyleToString(BorderStyle nStyle);
   static Subtype StringToAnnotSubtype(const ByteString& sSubtype);
   static ByteString AnnotSubtypeToString(Subtype nSubtype);
   static LineEnding StringToLineEnding(const ByteString& name);
   static ByteString LineEndingToString(LineEnding le);
+  static StandardFont StringToStandardFont(const ByteString& name);
+  static ByteString StandardFontToString(StandardFont font);
   static CFX_FloatRect RectFromQuadPointsArray(const CPDF_Array* pArray,
                                                size_t nIndex);
   static CFX_FloatRect BoundingRectFromQuadPoints(

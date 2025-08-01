@@ -796,6 +796,64 @@ RetainPtr<CPDF_Dictionary> GenerateResourceFontDict(
   return resource_font_dict;
 }
 
+// Returns a PDF-name-safe alias for |base_font_name|, guaranteed unique inside
+// /AcroForm/DR/Font.  Re-uses any existing alias that already maps to the same
+// BaseFont, otherwise creates a lean “standard-14” stub (or a fallback font
+// dict) and registers it.
+//
+// The returned ByteString is always non-empty when the operation succeeds.
+// On failure (e.g. |doc| == nullptr, empty |base_font_name|, OOM) an empty
+// string is returned and the caller should abort the appearance generation.
+//
+// NOTE: This helper does *not* embed a font program – viewers provide the
+// standard 14 fonts out of the box.  For non-standard faces we fall back to
+// GenerateFallbackFontDict(), which produces a minimal Type1 replacement.
+//
+ByteString EnsureFontInAcroFormDR(CPDF_Document* doc,
+                                  CPDF_Dictionary* acroform_dict,
+                                  const ByteString& base_font_name) {
+  if (!doc || !acroform_dict || base_font_name.IsEmpty())
+    return ByteString();
+
+  // /DR /Font
+  RetainPtr<CPDF_Dictionary> dr_dict = acroform_dict->GetOrCreateDictFor("DR");
+  RetainPtr<CPDF_Dictionary> font_res = dr_dict->GetOrCreateDictFor("Font");
+
+  // Is that font already present?
+  {
+    CPDF_DictionaryLocker locker(font_res);
+    for (const auto& kv : locker) {
+      const CPDF_Reference* ref =
+          kv.second ? kv.second->AsReference() : nullptr;
+      if (!ref)
+        continue;
+
+      RetainPtr<CPDF_Object> obj =
+          doc->GetOrParseIndirectObject(ref->GetRefObjNum());
+      const CPDF_Dictionary* dict = obj ? obj->AsDictionary() : nullptr;
+      if (dict && dict->GetNameFor("BaseFont") == base_font_name)
+        return kv.first;
+    }
+  }
+
+  ByteString resource_key =
+      ByteString::Format("FXF_%s", PDF_NameEncode(base_font_name).c_str());
+
+  while (font_res->KeyExist(resource_key.AsStringView())) {
+    static int suffix = 1;
+    resource_key = ByteString::Format("%s_%d", resource_key.c_str(), suffix++);
+  }
+
+  // Build a minimal Type1 font dictionary
+  RetainPtr<CPDF_Dictionary> new_font_dict = GenerateFallbackFontDict(doc);
+  new_font_dict->SetNewFor<CPDF_Name>("BaseFont", base_font_name);
+
+  // Register and return the key
+  font_res->SetNewFor<CPDF_Reference>(resource_key, doc,
+                                      new_font_dict->GetObjNum());
+  return resource_key;
+}
+
 ByteString GetPaintOperatorString(bool is_stroke_rect, bool is_fill_rect) {
   if (is_stroke_rect) {
     return is_fill_rect ? "b" : "s";
@@ -2060,5 +2118,41 @@ bool CPDF_GenerateAP::GenerateDefaultAppearanceWithColor(
       new_default_appearance_font_name_and_size + new_default_appearance_color);
 
   // TODO(thestig): Call GenerateAnnotAP();
+  return true;
+}
+
+bool CPDF_GenerateAP::UpdateDefaultAppearance(
+    CPDF_Document* doc,
+    CPDF_Dictionary* annot_dict,
+    CPDF_Annot::StandardFont font,
+    float font_size,
+    const CFX_Color& color) {
+  RetainPtr<CPDF_Dictionary> root_dict = doc->GetMutableRoot();
+  if (!root_dict) {
+    return false;
+  }
+
+  RetainPtr<CPDF_Dictionary> acroform_dict =
+      root_dict->GetMutableDictFor("AcroForm");
+  if (!acroform_dict) {
+    acroform_dict = CPDF_InteractiveForm::InitAcroFormDict(doc);
+    CHECK(acroform_dict);
+  }
+
+  ByteString base_font_name = CPDF_Annot::StandardFontToString(font);
+  if (base_font_name.IsEmpty()) {
+    return false;
+  }
+
+  ByteString resource_key =
+      EnsureFontInAcroFormDR(doc, acroform_dict.Get(), base_font_name);
+  if (resource_key.IsEmpty()) {
+    return false;
+  }
+
+  ByteString da_font_part = StringFromFontNameAndSize(resource_key, font_size);
+  ByteString da_color_part = GenerateColorAP(color, PaintOperation::kFill);
+
+  annot_dict->SetNewFor<CPDF_String>("DA", da_font_part + da_color_part);
   return true;
 }
