@@ -347,6 +347,17 @@ static_assert(static_cast<int>(CPDF_Annot::TextAlignment::kRight) ==
                   FPDF_TEXT_ALIGNMENT_RIGHT, 
               "CPDF_Annot::TextAlignment::kRight mismatch");
 
+// These checks ensure the consistency of vertical alignment values across core/ and public.
+static_assert(static_cast<int>(CPDF_Annot::VerticalAlignment::kTop) == 
+                  FPDF_VERTICAL_ALIGNMENT_TOP, 
+              "CPDF_Annot::VerticalAlignment::kTop mismatch");
+static_assert(static_cast<int>(CPDF_Annot::VerticalAlignment::kMiddle) == 
+                  FPDF_VERTICAL_ALIGNMENT_MIDDLE, 
+              "CPDF_Annot::VerticalAlignment::kMiddle mismatch");
+static_assert(static_cast<int>(CPDF_Annot::VerticalAlignment::kBottom) == 
+                  FPDF_VERTICAL_ALIGNMENT_BOTTOM, 
+              "CPDF_Annot::VerticalAlignment::kBottom mismatch");
+
 bool HasAPStream(CPDF_Dictionary* pAnnotDict) {
   return !!GetAnnotAP(pAnnotDict, CPDF_Annot::AppearanceMode::kNormal);
 }
@@ -2772,4 +2783,54 @@ EPDFAnnot_GetTextAlignment(FPDF_ANNOTATION annot) {
   }
 
   return kDefaultAlignment;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetVerticalAlignment(FPDF_ANNOTATION annot, FPDF_VERTICAL_ALIGNMENT alignment) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!annot_dict) {
+    return false;
+  }
+
+  // This property is only valid for FreeText annotations.
+  if (FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_FREETEXT) {
+    return false;
+  }
+
+  // Validate the enum range to ensure a valid value is passed.
+  if (alignment < FPDF_VERTICAL_ALIGNMENT_TOP || alignment > FPDF_VERTICAL_ALIGNMENT_BOTTOM) {
+    return false;
+  }
+
+  // Set the /EPDF:VerticalAlignment key in the annotation dictionary to the integer value of the enum.
+  annot_dict->SetNewFor<CPDF_Number>("EPDF:VerticalAlignment", static_cast<int>(alignment));
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_VERTICAL_ALIGNMENT FPDF_CALLCONV
+EPDFAnnot_GetVerticalAlignment(FPDF_ANNOTATION annot) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!annot_dict) {
+    return FPDF_VERTICAL_ALIGNMENT_TOP;
+  }
+
+  // This property is only valid for FreeText annotations.
+  if (FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_FREETEXT) {
+    return FPDF_VERTICAL_ALIGNMENT_TOP;
+  }
+
+  // GetIntegerFor() conveniently returns 0 if the key doesn't exist,
+  // which matches the PDF specification's default.
+  int alignment_value = annot_dict->GetIntegerFor("EPDF:VerticalAlignment");
+
+  // Validate the value is within the known enum range before casting.
+  if (alignment_value >= FPDF_VERTICAL_ALIGNMENT_TOP &&
+      alignment_value <= FPDF_VERTICAL_ALIGNMENT_BOTTOM) {
+    return static_cast<FPDF_VERTICAL_ALIGNMENT>(alignment_value);
+  }
+
+  return FPDF_VERTICAL_ALIGNMENT_TOP;
 }

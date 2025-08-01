@@ -165,6 +165,12 @@ typedef enum FPDF_TEXT_ALIGNMENT {
   FPDF_TEXT_ALIGNMENT_RIGHT = 2
 } FPDF_TEXT_ALIGNMENT;
 
+typedef enum FPDF_VERTICAL_ALIGNMENT {
+  FPDF_VERTICAL_ALIGNMENT_TOP = 0,
+  FPDF_VERTICAL_ALIGNMENT_MIDDLE = 1,
+  FPDF_VERTICAL_ALIGNMENT_BOTTOM = 2
+} FPDF_VERTICAL_ALIGNMENT;
+
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
 // Currently supported subtypes:
@@ -1419,6 +1425,26 @@ EPDFAnnot_SetTextAlignment(FPDF_ANNOTATION annot,
 // Returns the text alignment.
 FPDF_EXPORT FPDF_TEXT_ALIGNMENT FPDF_CALLCONV 
 EPDFAnnot_GetTextAlignment(FPDF_ANNOTATION annot);
+
+// Experimental EmbedPDF Extension API.
+// Set the vertical alignment of a FreeText annotation.
+//
+//   annot    - handle to an annotation.
+//   alignment - the vertical alignment to be set.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFAnnot_SetVerticalAlignment(FPDF_ANNOTATION annot, 
+                               FPDF_VERTICAL_ALIGNMENT alignment);
+
+// Experimental EmbedPDF Extension API.
+// Get the vertical alignment of a FreeText annotation.
+//
+//   annot    - handle to an annotation.
+//
+// Returns the vertical alignment.
+FPDF_EXPORT FPDF_VERTICAL_ALIGNMENT FPDF_CALLCONV 
+EPDFAnnot_GetVerticalAlignment(FPDF_ANNOTATION annot);
 
 #ifdef __cplusplus
 }  // extern "C"

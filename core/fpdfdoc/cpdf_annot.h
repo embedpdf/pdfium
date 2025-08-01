@@ -111,6 +111,12 @@ class CPDF_Annot {
     kRight = 2
   };
 
+  enum class VerticalAlignment {
+    kTop = 0,
+    kMiddle = 1,
+    kBottom = 2
+  };
+
   static BorderStyle StringToBorderStyle(const ByteString& sStyle);
   static ByteString BorderStyleToString(BorderStyle nStyle);
   static Subtype StringToAnnotSubtype(const ByteString& sSubtype);

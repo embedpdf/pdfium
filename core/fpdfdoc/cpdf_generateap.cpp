@@ -708,6 +708,17 @@ RetainPtr<const CPDF_Array> GetDashArray(const CPDF_Dictionary* dict) {
   return nullptr;
 }
 
+inline CPDF_Annot::VerticalAlignment GetVerticalAlign(
+    const CPDF_Dictionary* annot_dict) {
+  const int v =
+      annot_dict ? annot_dict->GetIntegerFor("EPDF:VerticalAlignment") : 0;
+  if (v < static_cast<int>(CPDF_Annot::VerticalAlignment::kTop) ||
+      v > static_cast<int>(CPDF_Annot::VerticalAlignment::kBottom)) {
+    return CPDF_Annot::VerticalAlignment::kTop;            // fallback
+  }
+  return static_cast<CPDF_Annot::VerticalAlignment>(v);
+}
+
 ByteString GetDashPatternString(const CPDF_Dictionary* dict) {
   RetainPtr<const CPDF_Array> dash_array = GetDashArray(dict);
   if (!dash_array || dash_array->IsEmpty()) {
@@ -1408,12 +1419,28 @@ bool GenerateFreeTextAP(CPDF_Document* doc, CPDF_Dictionary* annot_dict, const B
   vt.SetPlateRect(body_rect);
   vt.SetAlignment(annot_dict->GetIntegerFor("Q"));
   SetVtFontSize(default_appearance_info.value().font_size, vt);
-
+  vt.SetAutoReturn(true);
+  vt.SetMultiLine(true);
   vt.Initialize();
   vt.SetText(annot_dict->GetUnicodeTextFor(pdfium::annotation::kContents));
   vt.RearrangeAll();
   const CFX_FloatRect content_rect = vt.GetContentRect();
-  CFX_PointF offset(0.0f, (content_rect.Height() - body_rect.Height()) / 2.0f);
+  const float free_h = body_rect.Height() - content_rect.Height();   // can be < 0
+  float dy = 0.0f;
+
+  switch (GetVerticalAlign(annot_dict)) {
+    case CPDF_Annot::VerticalAlignment::kTop:
+      dy = 0.0f;
+      break;
+    case CPDF_Annot::VerticalAlignment::kMiddle:
+      dy = -free_h / 2.0f;      // centre
+      break;
+    case CPDF_Annot::VerticalAlignment::kBottom:
+      dy = -free_h;             // bottom
+      break;
+  }
+
+  CFX_PointF offset(0.0f, dy);
   const ByteString body =
       GenerateEditAP(vt.GetProvider()->GetFontMap(), vt.GetIterator(), offset,
                      /*continuous=*/true, /*sub_word=*/0);
