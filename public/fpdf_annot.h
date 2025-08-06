@@ -1446,6 +1446,56 @@ EPDFAnnot_SetVerticalAlignment(FPDF_ANNOTATION annot,
 FPDF_EXPORT FPDF_VERTICAL_ALIGNMENT FPDF_CALLCONV 
 EPDFAnnot_GetVerticalAlignment(FPDF_ANNOTATION annot);
 
+
+// Get the annotation by name.
+//
+//   page    - handle to a page.
+//   nm      - the name of the annotation.
+//
+// Returns the annotation.
+FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV 
+EPDFPage_GetAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm);
+
+// Remove the annotation by name.
+//
+//   page    - handle to a page.
+//   nm      - the name of the annotation.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFPage_RemoveAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm);
+
+// Set the linked annotation.
+
+//   annot    - handle to an annotation.
+//   key      - the key of the linked annotation.
+//   linked_annot - the linked annotation.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFAnnot_SetLinkedAnnot(FPDF_ANNOTATION annot, FPDF_BYTESTRING key, FPDF_ANNOTATION linked_annot);
+
+// Experimental EmbedPDF Extension API.
+// Get the annotation count.
+//
+//   doc    - handle to a document.
+//   page_index - the index of the page.
+//
+// Returns the annotation count.
+FPDF_EXPORT int FPDF_CALLCONV 
+EPDFPage_GetAnnotCountRaw(FPDF_DOCUMENT doc, int page_index);
+
+// Experimental EmbedPDF Extension API.
+// Get the annotation by index.
+//
+//   doc    - handle to a document.
+//   page_index - the index of the page.
+//   index    - the index of the annotation.
+//
+// Returns the annotation.
+FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV 
+EPDFPage_GetAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
