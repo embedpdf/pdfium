@@ -171,6 +171,46 @@ typedef enum FPDF_VERTICAL_ALIGNMENT {
   FPDF_VERTICAL_ALIGNMENT_BOTTOM = 2
 } FPDF_VERTICAL_ALIGNMENT;
 
+typedef enum FPDF_ANNOT_ICON {
+  FPDF_ANNOT_ICON_UNKNOWN = -1,
+  /* Text */
+  FPDF_ANNOT_ICON_Text_Comment = 0,
+  FPDF_ANNOT_ICON_Text_Key,
+  FPDF_ANNOT_ICON_Text_Note,
+  FPDF_ANNOT_ICON_Text_Help,
+  FPDF_ANNOT_ICON_Text_NewParagraph,
+  FPDF_ANNOT_ICON_Text_Paragraph,
+  FPDF_ANNOT_ICON_Text_Insert,
+
+  /* FileAttachment */
+  FPDF_ANNOT_ICON_File_Graph,
+  FPDF_ANNOT_ICON_File_PushPin,
+  FPDF_ANNOT_ICON_File_Paperclip,
+  FPDF_ANNOT_ICON_File_Tag,
+
+  /* Sound */
+  FPDF_ANNOT_ICON_Sound_Speaker,
+  FPDF_ANNOT_ICON_Sound_Mic,
+
+  /* Stamp */
+  FPDF_ANNOT_ICON_Stamp_Approved,
+  FPDF_ANNOT_ICON_Stamp_Experimental,
+  FPDF_ANNOT_ICON_Stamp_NotApproved,
+  FPDF_ANNOT_ICON_Stamp_AsIs,
+  FPDF_ANNOT_ICON_Stamp_Expired,
+  FPDF_ANNOT_ICON_Stamp_NotForPublicRelease,
+  FPDF_ANNOT_ICON_Stamp_Confidential,
+  FPDF_ANNOT_ICON_Stamp_Final,
+  FPDF_ANNOT_ICON_Stamp_Sold,
+  FPDF_ANNOT_ICON_Stamp_Departmental,
+  FPDF_ANNOT_ICON_Stamp_ForComment,
+  FPDF_ANNOT_ICON_Stamp_TopSecret,
+  FPDF_ANNOT_ICON_Stamp_Draft,
+  FPDF_ANNOT_ICON_Stamp_ForPublicRelease,
+
+  FPDF_ANNOT_ICON_LAST = FPDF_ANNOT_ICON_Stamp_ForPublicRelease
+} FPDF_ANNOT_ICON;
+
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
 // Currently supported subtypes:
@@ -1495,6 +1535,25 @@ EPDFPage_GetAnnotCountRaw(FPDF_DOCUMENT doc, int page_index);
 // Returns the annotation.
 FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV 
 EPDFPage_GetAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index);
+
+// Experimental EmbedPDF Extension API.
+// Set the icon of an annotation.
+//
+//   annot    - handle to an annotation.
+//   icon     - the icon to be set.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetIcon(FPDF_ANNOTATION annot, FPDF_ANNOT_ICON icon);
+
+// Experimental EmbedPDF Extension API.
+// Get the icon of an annotation.
+//
+//   annot    - handle to an annotation.
+//
+// Returns the icon.
+FPDF_EXPORT FPDF_ANNOT_ICON FPDF_CALLCONV
+EPDFAnnot_GetIcon(FPDF_ANNOTATION annot);
 
 #ifdef __cplusplus
 }  // extern "C"

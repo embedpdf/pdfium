@@ -117,6 +117,48 @@ class CPDF_Annot {
     kBottom = 2
   };
 
+  // --------------------------------------------------------------------
+  // Built‑in icon (/Name) enumeration – must stay in sync with the public
+  // FPDF_ANNOT_ICON list above so that static_cast is safe both ways.
+  // --------------------------------------------------------------------
+  enum class Icon {
+    kUnknown = -1,
+    // Text
+    kText_Comment,
+    kText_Key,
+    kText_Note,
+    kText_Help,
+    kText_NewParagraph,
+    kText_Paragraph,
+    kText_Insert,
+    // FileAttachment
+    kFile_Graph,
+    kFile_PushPin,
+    kFile_Paperclip,
+    kFile_Tag,
+    // Sound
+    kSound_Speaker,
+    kSound_Mic,
+    // Stamp
+    kStamp_Approved,
+    kStamp_Experimental,
+    kStamp_NotApproved,
+    kStamp_AsIs,
+    kStamp_Expired,
+    kStamp_NotForPublicRelease,
+    kStamp_Confidential,
+    kStamp_Final,
+    kStamp_Sold,
+    kStamp_Departmental,
+    kStamp_ForComment,
+    kStamp_TopSecret,
+    kStamp_Draft,
+    kStamp_ForPublicRelease,
+    kLast = kStamp_ForPublicRelease
+  };
+
+  static Icon StringToIcon(const ByteString& name);
+  static ByteString IconToString(Icon icon);
   static BorderStyle StringToBorderStyle(const ByteString& sStyle);
   static ByteString BorderStyleToString(BorderStyle nStyle);
   static Subtype StringToAnnotSubtype(const ByteString& sSubtype);

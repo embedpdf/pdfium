@@ -454,6 +454,153 @@ ByteString CPDF_Annot::AnnotSubtypeToString(CPDF_Annot::Subtype nSubtype) {
   return ByteString();
 }
 
+CPDF_Annot::Icon CPDF_Annot::StringToIcon(const ByteString& name) {
+  if (name == "Comment") {
+    return Icon::kText_Comment;
+  }
+  if (name == "Key") {
+    return Icon::kText_Key;
+  }
+  if (name == "Note") {
+    return Icon::kText_Note;
+  }
+  if (name == "Help") {
+    return Icon::kText_Help;
+  }
+  if (name == "NewParagraph") {
+    return Icon::kText_NewParagraph;
+  }
+  if (name == "Paragraph") {
+    return Icon::kText_Paragraph;
+  }
+  if (name == "Insert") {
+    return Icon::kText_Insert;
+  }
+  if (name == "Graph") {
+    return Icon::kFile_Graph;
+  }
+  if (name == "PushPin") {
+    return Icon::kFile_PushPin;
+  }
+  if (name == "Paperclip") {
+    return Icon::kFile_Paperclip;
+  }
+  if (name == "Tag") {
+    return Icon::kFile_Tag;
+  }
+  if (name == "Speaker") {
+    return Icon::kSound_Speaker;
+  }
+  if (name == "Mic") {
+    return Icon::kSound_Mic;
+  }
+  if (name == "Approved") {
+    return Icon::kStamp_Approved;
+  }
+  if (name == "Experimental") {
+    return Icon::kStamp_Experimental;
+  }
+  if (name == "NotApproved") {
+    return Icon::kStamp_NotApproved;
+  }
+  if (name == "AsIs") {
+    return Icon::kStamp_AsIs;
+  }
+  if (name == "Expired") {
+    return Icon::kStamp_Expired;
+  }
+  if (name == "NotForPublicRelease") {
+    return Icon::kStamp_NotForPublicRelease;
+  }
+  if (name == "Confidential") {
+    return Icon::kStamp_Confidential;
+  }
+  if (name == "Final") {
+    return Icon::kStamp_Final;
+  }
+  if (name == "Sold") {
+    return Icon::kStamp_Sold;
+  }
+  if (name == "Departmental") {
+    return Icon::kStamp_Departmental;
+  }
+  if (name == "ForComment") {
+    return Icon::kStamp_ForComment;
+  }
+  if (name == "TopSecret") {
+    return Icon::kStamp_TopSecret;
+  }
+  if (name == "Draft") {
+    return Icon::kStamp_Draft;
+  }
+  if (name == "ForPublicRelease") {
+    return Icon::kStamp_ForPublicRelease;
+  }
+  return Icon::kUnknown;
+}
+
+ByteString CPDF_Annot::IconToString(CPDF_Annot::Icon icon) {
+  switch (icon) {
+    case Icon::kText_Comment:
+      return "Comment";
+    case Icon::kText_Key:
+      return "Key";
+    case Icon::kText_Note:
+      return "Note";
+    case Icon::kText_Help:
+      return "Help";
+    case Icon::kText_NewParagraph:
+      return "NewParagraph";
+    case Icon::kText_Paragraph:
+      return "Paragraph";
+    case Icon::kText_Insert:
+      return "Insert";
+    case Icon::kFile_Graph:
+      return "Graph";
+    case Icon::kFile_PushPin:
+      return "PushPin";
+    case Icon::kFile_Paperclip:
+      return "Paperclip";
+    case Icon::kFile_Tag:
+      return "Tag";
+    case Icon::kSound_Speaker:
+      return "Speaker";
+    case Icon::kSound_Mic:
+      return "Mic";
+    case Icon::kStamp_Approved:
+      return "Approved";
+    case Icon::kStamp_Experimental:
+      return "Experimental";
+    case Icon::kStamp_NotApproved:
+      return "NotApproved";
+    case Icon::kStamp_AsIs:
+      return "AsIs";
+    case Icon::kStamp_Expired:
+      return "Expired";
+    case Icon::kStamp_NotForPublicRelease:
+      return "NotForPublicRelease";
+    case Icon::kStamp_Confidential:
+      return "Confidential";
+    case Icon::kStamp_Final:
+      return "Final";
+    case Icon::kStamp_Sold:
+      return "Sold";
+    case Icon::kStamp_Departmental:
+      return "Departmental";
+    case Icon::kStamp_ForComment:
+      return "ForComment";
+    case Icon::kStamp_TopSecret:
+      return "TopSecret";
+    case Icon::kStamp_Draft:
+      return "Draft";
+    case Icon::kStamp_ForPublicRelease:
+      return "ForPublicRelease";
+    case Icon::kUnknown:
+      break;
+  }
+  return ByteString();
+}
+
 ByteString CPDF_Annot::LineEndingToString(CPDF_Annot::LineEnding le) {
   switch (le) {
     case LineEnding::kNone:
