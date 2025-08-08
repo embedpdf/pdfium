@@ -1555,6 +1555,16 @@ EPDFAnnot_SetIcon(FPDF_ANNOTATION annot, FPDF_ANNOT_ICON icon);
 FPDF_EXPORT FPDF_ANNOT_ICON FPDF_CALLCONV
 EPDFAnnot_GetIcon(FPDF_ANNOTATION annot);
 
+// Experimental EmbedPDF Extension API.
+// Create an annotation. (the difference from FPDFPage_CreateAnnot is that it creates an indirect object)
+//
+//   page    - handle to a page.
+//   subtype - the subtype of the annotation.
+//
+// Returns the annotation.
+FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV 
+EPDFPage_CreateAnnot(FPDF_PAGE page, FPDF_ANNOTATION_SUBTYPE subtype);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

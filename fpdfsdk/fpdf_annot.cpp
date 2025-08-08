@@ -603,6 +603,14 @@ RetainPtr<CPDF_Dictionary> GetMutableAnnotDictFromFPDFAnnotation(
   return context ? context->GetMutableAnnotDict() : nullptr;
 }
 
+static uint32_t EnsureIndirect(CPDF_Document* doc,
+                               RetainPtr<CPDF_Dictionary> dict) {
+  uint32_t objnum = dict->GetObjNum();
+  if (objnum == 0)
+    objnum = doc->AddIndirectObject(dict);
+  return objnum;
+}
+
 RetainPtr<CPDF_Dictionary> SetExtGStateInResourceDict(
     CPDF_Document* pDoc,
     const CPDF_Dictionary* pAnnotDict,
@@ -3020,38 +3028,33 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_SetLinkedAnnot(FPDF_ANNOTATION annot,
                          FPDF_BYTESTRING key,
                          FPDF_ANNOTATION linked_annot) {
-  if (!annot || !key)
-    return false;
+  if (!annot || !key) return false;
 
-  CPDF_AnnotContext* src_ctx = CPDFAnnotContextFromFPDFAnnotation(annot);
-  if (!src_ctx)
-    return false;
+  CPDF_AnnotContext* src = CPDFAnnotContextFromFPDFAnnotation(annot);
+  CPDF_AnnotContext* dst = CPDFAnnotContextFromFPDFAnnotation(linked_annot);
+  if (!src) return false;
 
-  RetainPtr<CPDF_Dictionary> src_dict = src_ctx->GetMutableAnnotDict();
-  if (!src_dict)
-    return false;
+  RetainPtr<CPDF_Dictionary> src_dict = src->GetMutableAnnotDict();
+  if (!src_dict) return false;
 
-  // Removal branch
-  if (!linked_annot) {
-    src_dict->RemoveFor(key);
-    return true;
-  }
+  if (!linked_annot) { src_dict->RemoveFor(key); return true; }
 
-  // Update / add branch
-  CPDF_AnnotContext* dst_ctx = CPDFAnnotContextFromFPDFAnnotation(linked_annot);
-  if (!dst_ctx)
-    return false;
+  if (!dst) return false;
 
-  // Must live in the same PDF – cross-document references are invalid.
-  if (src_ctx->GetPage()->GetDocument() != dst_ctx->GetPage()->GetDocument())
-    return false;
+  IPDF_Page* sp = src->GetPage();
+  IPDF_Page* dp = dst->GetPage();
+  if (!sp || !dp) return false;
 
-  RetainPtr<CPDF_Dictionary> dst_dict = dst_ctx->GetMutableAnnotDict();
-  if (!dst_dict || dst_dict->GetNameFor("Type") != "Annot")
-    return false;
+  CPDF_Document* doc = sp->GetDocument();
+  if (doc != dp->GetDocument()) return false;
 
-  CPDF_Document* doc = src_ctx->GetPage()->GetDocument();
-  src_dict->SetNewFor<CPDF_Reference>(key, doc, dst_dict->GetObjNum());
+  RetainPtr<CPDF_Dictionary> dst_dict = dst->GetMutableAnnotDict();
+  if (!dst_dict) return false;
+
+  const uint32_t objnum = EnsureIndirect(doc, dst_dict);
+  if (objnum == 0) return false;
+
+  src_dict->SetNewFor<CPDF_Reference>(key, doc, objnum);
   return true;
 }
 
@@ -3161,4 +3164,28 @@ EPDFAnnot_GetIcon(FPDF_ANNOTATION annot) {
   // Convert the name string to the internal enum, then cast to the public enum.
   CPDF_Annot::Icon internal_icon = CPDF_Annot::StringToIcon(icon_name);
   return static_cast<FPDF_ANNOT_ICON>(internal_icon);
+}
+
+FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV
+EPDFPage_CreateAnnot(FPDF_PAGE page, FPDF_ANNOTATION_SUBTYPE subtype) {
+  CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
+  if (!pPage || !FPDFAnnot_IsSupportedSubtype(subtype))
+    return nullptr;
+
+  CPDF_Document* doc = pPage->GetDocument();
+
+  // Create the annotation dictionary as an INDIRECT object
+  RetainPtr<CPDF_Dictionary> dict = doc->NewIndirect<CPDF_Dictionary>();
+  dict->SetNewFor<CPDF_Name>(pdfium::annotation::kType, "Annot");
+  dict->SetNewFor<CPDF_Name>(
+      pdfium::annotation::kSubtype,
+      CPDF_Annot::AnnotSubtypeToString(static_cast<CPDF_Annot::Subtype>(subtype)));
+
+  // Append a REFERENCE to /Annots instead of the direct dict
+  RetainPtr<CPDF_Array> annots = pPage->GetOrCreateAnnotsArray();
+  annots->AppendNew<CPDF_Reference>(doc, dict->GetObjNum());
+
+  // Build the public handle
+  auto ctx = std::make_unique<CPDF_AnnotContext>(dict, IPDFPageFromFPDFPage(page));
+  return FPDFAnnotationFromCPDFAnnotContext(ctx.release());
 }
