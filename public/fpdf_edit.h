@@ -1650,6 +1650,32 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFFormObj_RemoveObject(FPDF_PAGEOBJECT form_object,
                          FPDF_PAGEOBJECT page_object);
 
+// Experimental EmbedPDF Extension API.
+// Blank (redact) a contiguous range of characters in a text object.
+//
+//   text_object - handle to a text object.
+//   start_index - the index of the first character to blank.
+//   count       - the number of characters to blank.
+//
+// Returns TRUE on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFTextObj_BlankRange(FPDF_PAGEOBJECT text_object,
+                       int start_index,
+                       int count);
+
+// Experimental EmbedPDF Extension API.
+// Blank (redact) specific character indices in a text object.
+//
+//   text_object - handle to a text object.
+//   indices     - array of character indices to blank.
+//   num_indices - number of indices to blank.
+//
+// Returns TRUE on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFTextObj_BlankIndices(FPDF_PAGEOBJECT text_object,
+                         const int* indices,
+                         int num_indices);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
