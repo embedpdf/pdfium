@@ -3014,12 +3014,33 @@ EPDFPage_RemoveAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm) {
   WideString target = UNSAFE_BUFFERS(WideStringFromFPDFWideString(nm));
 
   for (size_t i = 0; i < annots->size(); ++i) {
+    // Keep the raw entry so we can see if it was a reference.
+    RetainPtr<CPDF_Object> entry = annots->GetMutableObjectAt(i);
+
+    // Resolve to a dictionary to compare /NM.
     RetainPtr<CPDF_Dictionary> dict =
-        ToDictionary(annots->GetMutableDirectObjectAt(i));
-    if (dict && dict->GetUnicodeTextFor("NM") == target) {
-      annots->RemoveAt(i);
-      return true;
+        ToDictionary(entry ? entry->GetMutableDirect() : nullptr);
+    if (!dict || dict->GetUnicodeTextFor("NM") != target)
+      continue;
+
+    // Determine indirect object number, if any.
+    uint32_t objnum = 0;
+    if (entry && entry->IsReference()) {
+      objnum = entry->AsReference()->GetRefObjNum();
+    } else if (dict) {
+      // Handles the case where the dict was promoted indirect but the Annots
+      // array still holds it directly.
+      objnum = dict->GetObjNum();
     }
+
+    // Remove from /Annots.
+    annots->RemoveAt(i);
+
+    // If it was indirect, delete the object to avoid leaving an orphan.
+    if (objnum)
+      pPage->GetDocument()->DeleteIndirectObject(objnum);
+
+    return true;
   }
   return false;
 }
