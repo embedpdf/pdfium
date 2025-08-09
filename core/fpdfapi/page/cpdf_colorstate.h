@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_color.h"
+#include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/shared_copy_on_write.h"
 #include "core/fxcrt/span.h"
@@ -51,10 +52,15 @@ class CPDF_ColorState {
   void SetStrokePattern(RetainPtr<CPDF_Pattern> pattern,
                         pdfium::span<float> values);
 
-  bool HasRef() const { return !!ref_; }
+  const ByteString& GetFillColorSpaceResName() const;
+  const ByteString& GetStrokeColorSpaceResName() const;
+  void SetFillColorSpaceResName(ByteString name);
+  void SetStrokeColorSpaceResName(ByteString name);
+
+  bool HasRef() const { return ref_.GetObject() != nullptr; }
 
  private:
-  class ColorData final : public Retainable {
+  class ColorData final : public fxcrt::Retainable {
    public:
     CONSTRUCT_VIA_MAKE_RETAIN;
 
@@ -66,6 +72,9 @@ class CPDF_ColorState {
     FX_COLORREF stroke_color_ref_ = 0;
     CPDF_Color fill_color_;
     CPDF_Color stroke_color_;
+
+    ByteString fill_colorspace_res_name_;
+    ByteString stroke_colorspace_res_name_;
 
    private:
     ColorData();

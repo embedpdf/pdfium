@@ -26,6 +26,9 @@ class CPDF_PageObjectHolder;
 class CPDF_Path;
 class CPDF_PathObject;
 class CPDF_TextObject;
+class CPDF_Color; 
+class CPDF_ColorSpace;
+class CPDF_ColorState;
 
 class CPDF_PageContentGenerator {
  public:
@@ -46,7 +49,12 @@ class CPDF_PageContentGenerator {
   void ProcessGraphics(fxcrt::ostringstream* buf, CPDF_PageObject* pPageObj);
   void ProcessDefaultGraphics(fxcrt::ostringstream* buf);
   void ProcessText(fxcrt::ostringstream* buf, CPDF_TextObject* pTextObj);
+  bool EmitColor(fxcrt::ostringstream& buf,
+    const CPDF_Color* color,
+    bool is_stroke,
+    CPDF_PageObject* owner);
   ByteString GetOrCreateDefaultGraphics() const;
+  ByteString RealizeColorSpaceObject(const CPDF_ColorSpace* cs);
   ByteString RealizeResource(const CPDF_Object* pResource,
                              ByteStringView type) const;
   const CPDF_ContentMarks* ProcessContentMarks(fxcrt::ostringstream* buf,

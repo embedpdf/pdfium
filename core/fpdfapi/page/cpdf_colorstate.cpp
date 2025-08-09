@@ -33,7 +33,7 @@ FX_COLORREF CPDF_ColorState::GetFillColorRef() const {
 }
 
 void CPDF_ColorState::SetFillColorRef(FX_COLORREF colorref) {
-  if (!ref_ || GetFillColorRef() != colorref) {
+  if (!ref_.GetObject() || GetFillColorRef() != colorref) {
     ref_.GetPrivateCopy()->fill_color_ref_ = colorref;
   }
 }
@@ -43,7 +43,7 @@ FX_COLORREF CPDF_ColorState::GetStrokeColorRef() const {
 }
 
 void CPDF_ColorState::SetStrokeColorRef(FX_COLORREF colorref) {
-  if (!ref_ || GetStrokeColorRef() != colorref) {
+  if (!ref_.GetObject() || GetStrokeColorRef() != colorref) {
     ref_.GetPrivateCopy()->stroke_color_ref_ = colorref;
   }
 }
@@ -165,4 +165,20 @@ void CPDF_ColorState::ColorData::SetDefault() {
 RetainPtr<CPDF_ColorState::ColorData> CPDF_ColorState::ColorData::Clone()
     const {
   return pdfium::MakeRetain<CPDF_ColorState::ColorData>(*this);
+}
+
+const ByteString& CPDF_ColorState::GetFillColorSpaceResName() const {
+  return ref_.GetObject()->fill_colorspace_res_name_;
+}
+
+const ByteString& CPDF_ColorState::GetStrokeColorSpaceResName() const {
+  return ref_.GetObject()->stroke_colorspace_res_name_;
+}
+
+void CPDF_ColorState::SetFillColorSpaceResName(ByteString name) {
+  ref_.GetPrivateCopy()->fill_colorspace_res_name_ = std::move(name);
+}
+
+void CPDF_ColorState::SetStrokeColorSpaceResName(ByteString name) {
+  ref_.GetPrivateCopy()->stroke_colorspace_res_name_ = std::move(name);
 }

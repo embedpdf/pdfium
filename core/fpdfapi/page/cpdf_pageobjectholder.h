@@ -136,6 +136,9 @@ class CPDF_PageObjectHolder {
   std::optional<ByteString> FontsMapSearch(const FontData& fd);
   void FontsMapInsert(const FontData& fd, const ByteString& str);
 
+  std::optional<ByteString> ColorSpaceMapSearch(const ByteString& key);
+  void ColorSpaceMapInsert(const ByteString& key, const ByteString& name);
+
   // `stream` must be non-negative or `CPDF_PageObject::kNoContentStream`.
   CFX_Matrix GetCTMAtBeginningOfStream(int32_t stream);
 
@@ -153,6 +156,7 @@ class CPDF_PageObjectHolder {
   RetainPtr<CPDF_Dictionary> resources_;
   std::map<GraphicsData, ByteString> graphics_map_;
   std::map<FontData, ByteString> fonts_map_;
+  std::map<ByteString, ByteString> colorspace_map_;
   CFX_FloatRect bbox_;
   CPDF_Transparency transparency_;
 
