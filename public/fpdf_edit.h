@@ -1650,6 +1650,35 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFFormObj_RemoveObject(FPDF_PAGEOBJECT form_object,
                          FPDF_PAGEOBJECT page_object);
 
+// Experimental API.
+//
+// Redact text in a given rectangle on a page.
+//
+//   page          - handle to a page.
+//   rect          - handle to a rectangle.
+//   recurse_forms - whether to recurse into form objects.
+//
+// Returns TRUE on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFText_RedactInRect(FPDF_PAGE page,
+                      const FS_RECTF* rect,
+                      FPDF_BOOL recurse_forms);
+
+// Experimental API.
+//
+// Redact text in a given quads on a page.
+//
+//   page          - handle to a page.
+//   quads         - handle to a quads.
+//   count         - the number of quads.
+//   recurse_forms - whether to recurse into form objects.
+//
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFText_RedactInQuads(FPDF_PAGE page,
+                       const FS_QUADPOINTSF* quads,
+                       size_t count,
+                       FPDF_BOOL recurse_forms);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

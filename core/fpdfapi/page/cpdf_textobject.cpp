@@ -262,6 +262,14 @@ float CPDF_TextObject::GetFontSize() const {
   return text_state().GetFontSize();
 }
 
+float CPDF_TextObject::GetCharSpace() const {
+  return text_state().GetCharSpace();
+}
+
+float CPDF_TextObject::GetWordSpace() const {
+  return text_state().GetWordSpace();
+}
+
 TextRenderingMode CPDF_TextObject::GetTextRenderMode() const {
   return text_state().GetTextMode();
 }

@@ -21,6 +21,8 @@ source_set("edit") {
     "cpdf_pageorganizer.h",
     "cpdf_stringarchivestream.cpp",
     "cpdf_stringarchivestream.h",
+    "cpdf_text_redactor.cpp",
+    "cpdf_text_redactor.h",
   ]
   configs += [
     "../../../:pdfium_strict_config",
