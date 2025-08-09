@@ -85,44 +85,6 @@ namespace {
 
 constexpr uint32_t kMaxBfCharBfRangeEntries = 100;
 
-static std::vector<uint32_t>& MutCodes(CPDF_TextObject* tobj) {
-  return const_cast<std::vector<uint32_t>&>(tobj->GetCharCodes());
-}
-
-bool BlankOne(CPDF_TextObject* tobj, int i) {
-  auto& codes = MutCodes(tobj);
-  if (i < 0 || i >= static_cast<int>(codes.size()))
-    return false;
-
-  // Null charcode => nothing drawn; positions/spacing unchanged.
-  codes[i] = 0;
-  // We don’t touch Unicode here; charcode 0 won’t extract anyway.
-  return true;
-}
-
-bool BlankIndicesInternal(CPDF_TextObject* tobj,
-                          const int* indices,
-                          int n) {
-  if (!tobj || !indices || n <= 0)
-    return false;
-
-  std::vector<int> idx(indices, indices + n);
-  std::sort(idx.begin(), idx.end());
-  idx.erase(std::unique(idx.begin(), idx.end()), idx.end());
-
-  const int size = static_cast<int>(tobj->GetCharCodes().size());
-  bool any = false;
-  for (int i : idx) {
-    if (i >= 0 && i < size)
-      any |= BlankOne(tobj, i);
-  }
-
-  if (any)
-    tobj->SetDirty(true);
-
-  return any;
-}
-
 ByteString BaseFontNameForType(const CFX_Font* font, int font_type) {
   ByteString name = font_type == FPDF_FONT_TYPE1 ? font->GetPsName()
                                                  : font->GetBaseFontName();
@@ -1140,44 +1102,4 @@ FPDFGlyphPath_GetGlyphPathSegment(FPDF_GLYPHPATH glyphpath, int index) {
   }
 
   return FPDFPathSegmentFromFXPathPoint(&points[index]);
-}
-
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-EPDFTextObj_BlankRange(FPDF_PAGEOBJECT text_object,
-                       int start_index,
-                       int count) {
-  if (!text_object || count <= 0)
-    return false;
-
-  CPDF_PageObject* obj = CPDFPageObjectFromFPDFPageObject(text_object);
-  if (!obj || obj->GetType() != CPDF_PageObject::Type::kText)
-    return false;
-
-  CPDF_TextObject* tobj = obj->AsText();
-  const int size = static_cast<int>(tobj->GetCharCodes().size());
-  if (start_index < 0 || start_index >= size)
-    return false;
-
-  std::vector<int> idx;
-  const int end = std::min(start_index + count, size);
-  idx.reserve(end - start_index);
-  for (int i = start_index; i < end; ++i)
-    idx.push_back(i);
-
-  return BlankIndicesInternal(tobj, idx.data(),
-                              static_cast<int>(idx.size()));
-}
-
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-EPDFTextObj_BlankIndices(FPDF_PAGEOBJECT text_object,
-                         const int* indices,
-                         int num_indices) {
-  if (!text_object || !indices || num_indices <= 0)
-    return false;
-
-  CPDF_PageObject* obj = CPDFPageObjectFromFPDFPageObject(text_object);
-  if (!obj || obj->GetType() != CPDF_PageObject::Type::kText)
-    return false;
-
-  return BlankIndicesInternal(obj->AsText(), indices, num_indices);
 }
