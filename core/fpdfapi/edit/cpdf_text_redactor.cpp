@@ -116,8 +116,7 @@ RedactOutcome RedactTextObjectMulti(CPDF_TextObject* to,
     if (it.char_code_ == CPDF_Font::kInvalidCharCode) {
       float original_adj = 0.0f;
       if (to->GetSeparatorAdjustment(i, &original_adj)) {
-        // Merge original TJ into the pending pool. It will be emitted (with
-        // sign preserved) when we flush the next kept run.
+        // Merge original TJ into the pending pool; sign preserved.
         pending_tj += original_adj;
       }
       continue;
@@ -129,21 +128,29 @@ RedactOutcome RedactTextObjectMulti(CPDF_TextObject* to,
 
     if (hit) {
       any_removed = true;
+      // Remove glyph advance from the pen position (thousandths).
       pending_tj -= AdvanceThousandths(to, font, it.char_code_);
       continue;
     }
 
     // Keep this glyph.
+    if (run.IsEmpty() && pending_tj != 0.0f) {
+      // We have removal/TJ before the first kept glyph: shift the text matrix
+      // instead of emitting a leading TJ number (which can't move the run's origin).
+      CFX_Matrix tm = to->GetTextMatrix();
+      const float fs = to->GetFontSize();
+      const float du = -pending_tj * (fs / 1000.0f);  // user-units along baseline
+      tm.e += du * tm.a;  // shift along text X axis in user space
+      tm.f += du * tm.b;  // (handles rotated text)
+      to->SetTextMatrix(tm);
+      pending_tj = 0.0f;
+    }
+
     if (!run.IsEmpty() && pending_tj != 0.0f) {
+      // Between kept runs: flush run & attach the TJ adjustment.
       strings.push_back(run);
       kernings.push_back(pending_tj);
       run.clear();
-      pending_tj = 0.0f;
-    } else if (run.IsEmpty() && pending_tj != 0.0f) {
-      // We have removal/TJ before the first kept glyph: create an empty segment
-      // so we can attach the kerning in between segments.
-      strings.emplace_back(ByteString());
-      kernings.push_back(pending_tj);
       pending_tj = 0.0f;
     }
 
@@ -164,7 +171,7 @@ RedactOutcome RedactTextObjectMulti(CPDF_TextObject* to,
   to->SetSegments(pdfium::span(strings), pdfium::span(kernings));
   to->SetDirty(true);
   CFX_Matrix tm = to->GetTextMatrix();
-  to->SetTextMatrix(tm); 
+  to->SetTextMatrix(tm);
   return any_removed ? RedactOutcome::kModified : RedactOutcome::kUnchanged;
 }
 
