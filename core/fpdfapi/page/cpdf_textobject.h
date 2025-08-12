@@ -58,6 +58,8 @@ class CPDF_TextObject final : public CPDF_PageObject {
 
   RetainPtr<CPDF_Font> GetFont() const;
   float GetFontSize() const;
+  float GetCharSpace() const;
+  float GetWordSpace() const;
 
   TextRenderingMode GetTextRenderMode() const;
   void SetTextRenderMode(TextRenderingMode mode);
@@ -73,6 +75,8 @@ class CPDF_TextObject final : public CPDF_PageObject {
 
   void SetSegments(pdfium::span<const ByteString> strings,
                    pdfium::span<const float> kernings);
+
+  bool GetSeparatorAdjustment(size_t index, float* out_thousandths) const;
 
   CFX_PointF CalcPositionData(float horz_scale);
 

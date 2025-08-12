@@ -120,6 +120,32 @@ void CPDF_PageObjectHolder::FontsMapInsert(const FontData& fd,
   fonts_map_[fd] = str;
 }
 
+std::optional<ByteString> CPDF_PageObjectHolder::FontsByObjnumSearch(uint32_t objnum) {
+  if (!objnum)
+    return std::nullopt;
+  auto it = fonts_by_objnum_.find(objnum);
+  return it == fonts_by_objnum_.end() ? std::nullopt : std::optional<ByteString>(it->second);
+}
+
+void CPDF_PageObjectHolder::FontsByObjnumInsert(uint32_t objnum, const ByteString& name) {
+  if (!objnum)
+    return;
+  fonts_by_objnum_[objnum] = name;
+}
+
+std::optional<ByteString> CPDF_PageObjectHolder::ColorSpaceMapSearch(
+    const ByteString& key) {
+  auto it = colorspace_map_.find(key);
+  if (it == colorspace_map_.end())
+    return std::nullopt;
+  return it->second;
+}
+
+void CPDF_PageObjectHolder::ColorSpaceMapInsert(const ByteString& key,
+                                                const ByteString& name) {
+  colorspace_map_[key] = name;
+}
+
 CFX_Matrix CPDF_PageObjectHolder::GetCTMAtBeginningOfStream(int32_t stream) {
   CHECK(stream >= 0 || stream == CPDF_PageObject::kNoContentStream);
 

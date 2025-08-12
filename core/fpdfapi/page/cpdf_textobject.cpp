@@ -262,6 +262,14 @@ float CPDF_TextObject::GetFontSize() const {
   return text_state().GetFontSize();
 }
 
+float CPDF_TextObject::GetCharSpace() const {
+  return text_state().GetCharSpace();
+}
+
+float CPDF_TextObject::GetWordSpace() const {
+  return text_state().GetWordSpace();
+}
+
 TextRenderingMode CPDF_TextObject::GetTextRenderMode() const {
   return text_state().GetTextMode();
 }
@@ -354,4 +362,20 @@ float CPDF_TextObject::CalcPositionDataInternal(
   SetRect(rect);
 
   return curpos;
+}
+
+bool CPDF_TextObject::GetSeparatorAdjustment(size_t index,
+                                             float* out_thousandths) const {
+  DCHECK(out_thousandths);
+  if (index >= char_codes_.size())
+    return false;
+  if (char_codes_[index] != CPDF_Font::kInvalidCharCode)
+    return false;
+  if (index == 0)
+    return false;  // there’s no preceding glyph
+  // By contract of SetSegments()/CalcPositionDataInternal():
+  //  - char_pos_[k] holds the original kerning value (thousandths)
+  //    for the preceding real glyph when char_codes_[k+1] is Invalid.
+  *out_thousandths = char_pos_[index - 1];
+  return true;
 }

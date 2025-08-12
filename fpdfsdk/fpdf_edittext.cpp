@@ -12,6 +12,7 @@
 
 #include "core/fpdfapi/font/cpdf_cidfont.h"
 #include "core/fpdfapi/font/cpdf_font.h"
+#include "core/fpdfapi/edit/cpdf_text_redactor.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/cpdf_textobject.h"
 #include "core/fpdfapi/page/cpdf_textstate.h"
@@ -84,6 +85,15 @@ static_assert(static_cast<int>(TextRenderingMode::MODE_LAST) ==
 namespace {
 
 constexpr uint32_t kMaxBfCharBfRangeEntries = 100;
+
+// Turn a quad into its axis-aligned bounding box in page space.
+CFX_FloatRect BBoxOfQuad(const FS_QUADPOINTSF& q) {
+  const float l = std::min(std::min(q.x1, q.x2), std::min(q.x3, q.x4));
+  const float r = std::max(std::max(q.x1, q.x2), std::max(q.x3, q.x4));
+  const float b = std::min(std::min(q.y1, q.y2), std::min(q.y3, q.y4));
+  const float t = std::max(std::max(q.y1, q.y2), std::max(q.y3, q.y4));
+  return CFX_FloatRect(l, b, r, t);
+}
 
 ByteString BaseFontNameForType(const CFX_Font* font, int font_type) {
   ByteString name = font_type == FPDF_FONT_TYPE1 ? font->GetPsName()
@@ -1102,4 +1112,34 @@ FPDFGlyphPath_GetGlyphPathSegment(FPDF_GLYPHPATH glyphpath, int index) {
   }
 
   return FPDFPathSegmentFromFXPathPoint(&points[index]);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFText_RedactInRect(FPDF_PAGE page, const FS_RECTF* rect, FPDF_BOOL recurse, FPDF_BOOL draw_black_boxes) {
+  if (!page || !rect)
+    return false;
+
+  CPDF_Page* p = CPDFPageFromFPDFPage(page);
+  const CFX_FloatRect r = CFXFloatRectFromFSRectF(*rect);
+  return RedactTextInRect(p, r, !!recurse, !!draw_black_boxes);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFText_RedactInQuads(FPDF_PAGE page,
+                       const FS_QUADPOINTSF* quads,
+                       size_t count,
+                       FPDF_BOOL recurse,
+                       FPDF_BOOL draw_black_boxes
+                      ) {
+  if (!page || (count && !quads))
+    return false;
+
+  CPDF_Page* p = CPDFPageFromFPDFPage(page);
+
+  std::vector<CFX_FloatRect> rects;
+  rects.reserve(count);
+  for (size_t i = 0; i < count; ++i)
+    rects.push_back(BBoxOfQuad(quads[i]));
+
+  return RedactTextInRects(p, pdfium::span(rects), !!recurse, !!draw_black_boxes);
 }

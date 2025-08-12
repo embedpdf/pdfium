@@ -38,6 +38,76 @@
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/fx_dib.h"
 
+namespace {
+
+  // Internal helper that overwrites an existing stream's dict + bytes
+  // and purges any cached image.
+  bool OverwriteStreamData(CPDF_Stream* s,
+                           CPDF_Document* doc,
+                           DataVector<uint8_t> new_data,
+                           RetainPtr<CPDF_Dictionary> new_dict,
+                           bool data_is_decoded) {
+    if (!s || !new_dict)
+      return false;
+  
+    // Replace dictionary entries (no streams allowed as values).
+    RetainPtr<CPDF_Dictionary> old = s->GetMutableDict();
+    if (!old)
+      return false;
+  
+    // Clear existing keys.
+    for (const ByteString& k : old->GetKeys())
+      old->RemoveFor(k.AsStringView());
+  
+    // Deep-copy all entries from new_dict into old.
+    CPDF_DictionaryLocker lock(new_dict);
+    for (auto it = lock.begin(); it != lock.end(); ++it)
+      old->SetFor(it->first, it->second->Clone());
+  
+    // Swap in the bytes.
+    if (data_is_decoded) {
+      // Decoded pixels: also removes Filter/DecodeParms from the stream dict.
+      s->SetDataAndRemoveFilter(pdfium::span<const uint8_t>(new_data));
+    } else {
+      // Already filtered (e.g., JPEG with /Filter /DCTDecode).
+      s->TakeData(std::move(new_data));
+    }
+  
+    if (doc)
+      doc->MaybePurgeImage(s->GetObjNum());
+  
+    return true;
+  }
+  
+}  // namespace
+
+bool CPDF_Image::OverwriteStreamInPlace(DataVector<uint8_t> new_data,
+                                        RetainPtr<CPDF_Dictionary> new_dict,
+                                        bool data_is_decoded) {
+  // Ensure we can mutate the underlying stream.
+  if (stream_->IsInline())
+    ConvertStreamToIndirectObject();
+
+  RetainPtr<const CPDF_Stream> s_const = GetStream();
+  if (!s_const)
+    return false;
+
+  // Get a mutable stream by objnum.
+  RetainPtr<CPDF_Stream> s =
+      ToStream(document_->GetMutableIndirectObject(s_const->GetObjNum()));
+  if (!s)
+    return false;
+
+  const bool ok =
+      OverwriteStreamData(s.Get(), document_, std::move(new_data),
+                          std::move(new_dict), data_is_decoded);
+  if (ok) {
+    // Refresh cached flags/size from the new dictionary.
+    FinishInitialization();
+  }
+  return ok;
+}
+
 // static
 bool CPDF_Image::IsValidJpegComponent(int32_t comps) {
   return comps == 1 || comps == 3 || comps == 4;
@@ -181,6 +251,7 @@ void CPDF_Image::SetJpegImageInline(RetainPtr<IFX_SeekableReadStream> pFile) {
 
   stream_ = pdfium::MakeRetain<CPDF_Stream>(std::move(data), std::move(dict));
 }
+
 
 void CPDF_Image::SetImage(const RetainPtr<CFX_DIBitmap>& pBitmap) {
   int32_t BitmapWidth = pBitmap->GetWidth();

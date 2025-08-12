@@ -13,6 +13,7 @@
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/span.h"
 #include "core/fxcrt/unowned_ptr.h"
+#include "core/fxcrt/data_vector.h"
 
 class CFX_DIBBase;
 class CFX_DIBitmap;
@@ -23,6 +24,7 @@ class CPDF_Page;
 class CPDF_Stream;
 class PauseIndicatorIface;
 class IFX_SeekableReadStream;
+class CPDF_Dictionary;
 
 class CPDF_Image final : public Retainable {
  public:
@@ -54,6 +56,10 @@ class CPDF_Image final : public Retainable {
   void SetImage(const RetainPtr<CFX_DIBitmap>& pBitmap);
   void SetJpegImage(RetainPtr<IFX_SeekableReadStream> pFile);
   void SetJpegImageInline(RetainPtr<IFX_SeekableReadStream> pFile);
+
+  bool OverwriteStreamInPlace(DataVector<uint8_t> new_data,
+                              RetainPtr<CPDF_Dictionary> new_dict,
+                              bool data_is_decoded);
 
   void ResetCache(CPDF_Page* pPage);
 
