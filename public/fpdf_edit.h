@@ -1662,7 +1662,8 @@ FPDFFormObj_RemoveObject(FPDF_PAGEOBJECT form_object,
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFText_RedactInRect(FPDF_PAGE page,
                       const FS_RECTF* rect,
-                      FPDF_BOOL recurse_forms);
+                      FPDF_BOOL recurse_forms,
+                      FPDF_BOOL draw_black_boxes);
 
 // Experimental API.
 //
@@ -1677,7 +1678,8 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFText_RedactInQuads(FPDF_PAGE page,
                        const FS_QUADPOINTSF* quads,
                        size_t count,
-                       FPDF_BOOL recurse_forms);
+                       FPDF_BOOL recurse_forms,
+                       FPDF_BOOL draw_black_boxes);
 
 #ifdef __cplusplus
 }  // extern "C"

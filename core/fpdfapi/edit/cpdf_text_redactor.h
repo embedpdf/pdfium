@@ -18,10 +18,12 @@ class CPDF_Page;
 // Returns true if anything changed.
 bool RedactTextInRect(CPDF_Page* page,
                       const CFX_FloatRect& page_space_rect,
-                      bool recurse_forms);
-
+                      bool recurse_forms,
+                      bool draw_black_boxes);
+  
 bool RedactTextInRects(CPDF_Page* page,
                        pdfium::span<const CFX_FloatRect> page_space_rects,
-                       bool recurse_forms);
+                       bool recurse_forms,
+                       bool draw_black_boxes);
 
 #endif  // CORE_FPDFAPI_EDIT_CPDF_TEXT_REDACTOR_H_

@@ -1115,20 +1115,22 @@ FPDFGlyphPath_GetGlyphPathSegment(FPDF_GLYPHPATH glyphpath, int index) {
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-EPDFText_RedactInRect(FPDF_PAGE page, const FS_RECTF* rect, FPDF_BOOL recurse) {
+EPDFText_RedactInRect(FPDF_PAGE page, const FS_RECTF* rect, FPDF_BOOL recurse, FPDF_BOOL draw_black_boxes) {
   if (!page || !rect)
     return false;
 
   CPDF_Page* p = CPDFPageFromFPDFPage(page);
   const CFX_FloatRect r = CFXFloatRectFromFSRectF(*rect);
-  return RedactTextInRect(p, r, !!recurse);
+  return RedactTextInRect(p, r, !!recurse, !!draw_black_boxes);
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFText_RedactInQuads(FPDF_PAGE page,
                        const FS_QUADPOINTSF* quads,
                        size_t count,
-                       FPDF_BOOL recurse) {
+                       FPDF_BOOL recurse,
+                       FPDF_BOOL draw_black_boxes
+                      ) {
   if (!page || (count && !quads))
     return false;
 
@@ -1139,5 +1141,5 @@ EPDFText_RedactInQuads(FPDF_PAGE page,
   for (size_t i = 0; i < count; ++i)
     rects.push_back(BBoxOfQuad(quads[i]));
 
-  return RedactTextInRects(p, pdfium::span(rects), !!recurse);
+  return RedactTextInRects(p, pdfium::span(rects), !!recurse, !!draw_black_boxes);
 }

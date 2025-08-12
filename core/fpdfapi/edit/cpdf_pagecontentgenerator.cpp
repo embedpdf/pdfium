@@ -394,6 +394,25 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
   all_dirty_streams.insert(marked_dirty_streams.begin(),
                            marked_dirty_streams.end());
 
+  // --- embedpdf: if anything is dirty, regenerate *all* page content streams.
+  // Rationale: CTM / graphics-state handoff between streams means rewriting
+  // only a subset can leave the concatenated effect inconsistent.
+  if (!all_dirty_streams.empty()) {
+    int32_t last_index = -1;
+    if (RetainPtr<const CPDF_Object> contents =
+            obj_holder_->GetDict()->GetObjectFor(pdfium::page_object::kContents)) {
+      if (const CPDF_Array* arr = contents->AsArray()) {
+        last_index = static_cast<int32_t>(arr->size()) - 1;
+      } else if (contents->IsStream()) {
+        last_index = 0;
+      }
+    }
+    for (int32_t i = 0; i <= last_index; ++i) {
+      all_dirty_streams.insert(i);
+    }
+  }
+  // --- end embedpdf
+
   // Start regenerating dirty streams.
   std::map<int32_t, fxcrt::ostringstream> streams;
   std::set<int32_t> empty_streams;
@@ -1088,39 +1107,69 @@ void CPDF_PageContentGenerator::ProcessText(fxcrt::ostringstream* buf,
   ProcessGraphics(buf, pTextObj);
   *buf << "BT ";
 
-  const CFX_Matrix& matrix = pTextObj->GetTextMatrix();
-  if (!matrix.IsIdentity()) {
-    WriteMatrix(*buf, matrix) << " Tm ";
+  // Separate translation (cm) from pure text matrix (Tm)
+  const CFX_Matrix& M = pTextObj->GetTextMatrix();
+  if (M.e != 0 || M.f != 0) {
+    WriteMatrix(*buf, CFX_Matrix(1, 0, 0, 1, M.e, M.f)) << " cm ";
   }
 
+  CFX_Matrix TmNoTranslate(M.a, M.b, M.c, M.d, 0, 0);
+  if (!TmNoTranslate.IsIdentity()) {
+    WriteMatrix(*buf, TmNoTranslate) << " Tm ";
+  } else {
+    *buf << "1 0 0 1 0 0 Tm ";
+  }
+
+  // Ensure we have a font.
   RetainPtr<CPDF_Font> font(pTextObj->GetFont());
   if (!font) {
     font = CPDF_Font::GetStockFont(document_, "Helvetica");
   }
 
-  FontData data;
-  const CPDF_FontEncoding* pEncoding = nullptr;
-  if (font->IsType1Font()) {
-    data.type = "Type1";
-    pEncoding = font->AsType1Font()->GetEncoding();
-  } else if (font->IsTrueTypeFont()) {
-    data.type = "TrueType";
-    pEncoding = font->AsTrueTypeFont()->GetEncoding();
-  } else if (font->IsCIDFont()) {
-    data.type = "Type0";
-  } else {
-    return;
+  // --- Object-number keyed font resource binding ---
+  // Get the font dictionary; if it's inline, make it indirect so it has a stable objnum.
+  RetainPtr<const CPDF_Object> pFontDict = font->GetFontDict();
+  if (pFontDict && pFontDict->IsInline()) {
+    RetainPtr<CPDF_Object> clone = pFontDict->Clone();
+    document_->AddIndirectObject(clone);
+    pFontDict = std::move(clone);
   }
-  data.baseFont = font->GetBaseFontName();
+
+  // Some (very old/odd) fonts may not expose a dict; fall back safely.
+  uint32_t font_objnum = pFontDict ? pFontDict->GetObjNum() : 0;
 
   ByteString dict_name;
-  std::optional<ByteString> maybe_name = obj_holder_->FontsMapSearch(data);
-  if (maybe_name.has_value()) {
-    dict_name = std::move(maybe_name.value());
+  if (font_objnum) {
+    if (auto hit = obj_holder_->FontsByObjnumSearch(font_objnum)) {
+      dict_name = *hit;
+    } else {
+      // Realize this exact font object into Resources/Font and cache by objnum.
+      dict_name = RealizeResource(pFontDict.Get(), "Font");
+      obj_holder_->FontsByObjnumInsert(font_objnum, dict_name);
+    }
   } else {
-    RetainPtr<const CPDF_Object> pIndirectFont = font->GetFontDict();
-    if (pIndirectFont->IsInline()) {
-      // In this case we assume it must be a standard font
+    // Last-resort path (should be rare): name by (type, base name) like before.
+    FontData data;
+    const CPDF_FontEncoding* pEncoding = nullptr;
+    if (font->IsType1Font()) {
+      data.type = "Type1";
+      pEncoding = font->AsType1Font()->GetEncoding();
+    } else if (font->IsTrueTypeFont()) {
+      data.type = "TrueType";
+      pEncoding = font->AsTrueTypeFont()->GetEncoding();
+    } else if (font->IsCIDFont()) {
+      data.type = "Type0";
+    } else {
+      *buf << "ET";  // bail out cleanly
+      EndProcessGraphics(*buf);
+      return;
+    }
+    data.baseFont = font->GetBaseFontName();
+
+    if (auto hit = obj_holder_->FontsMapSearch(data)) {
+      dict_name = *hit;
+    } else {
+      // Build a minimal indirect font dict (same as your old code).
       auto font_dict = pdfium::MakeRetain<CPDF_Dictionary>();
       font_dict->SetNewFor<CPDF_Name>("Type", "Font");
       font_dict->SetNewFor<CPDF_Name>("Subtype", data.type);
@@ -1130,16 +1179,22 @@ void CPDF_PageContentGenerator::ProcessText(fxcrt::ostringstream* buf,
                           pEncoding->Realize(document_->GetByteStringPool()));
       }
       document_->AddIndirectObject(font_dict);
-      pIndirectFont = std::move(font_dict);
+      dict_name = RealizeResource(std::move(font_dict), "Font");
+      obj_holder_->FontsMapInsert(data, dict_name);
     }
-    dict_name = RealizeResource(std::move(pIndirectFont), "Font");
-    obj_holder_->FontsMapInsert(data, dict_name);
   }
+
   pTextObj->SetResourceName(dict_name);
 
   *buf << "/" << PDF_NameEncode(dict_name) << " ";
   WriteFloat(*buf, pTextObj->GetFontSize()) << " Tf ";
   *buf << static_cast<int>(pTextObj->GetTextRenderMode()) << " Tr ";
+
+  const float tc = pTextObj->GetCharSpace();
+  const float tw = pTextObj->GetWordSpace();
+
+  if (tc != 0.0f) WriteFloat(*buf, tc) << " Tc ";
+  if (tw != 0.0f) WriteFloat(*buf, tw) << " Tw ";
 
   if (TextObjectNeedsTJ(pTextObj)) {
     WriteTextAsTJ(*buf, pTextObj, font.Get());
