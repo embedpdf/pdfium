@@ -509,6 +509,7 @@ static bool RedactImageObject(CPDF_Page* page,
 // true, also descends into nested Form XObjects via their placement matrices.
 //
 // `to_page` transforms holder-local space to PAGE USER SPACE.
+// Redact all page objects inside a holder (page or form).
 bool RedactHolder(CPDF_Page* page_for_cache,
                   CPDF_PageObjectHolder* holder,
                   pdfium::span<const CFX_FloatRect> page_rects,
@@ -541,17 +542,36 @@ bool RedactHolder(CPDF_Page* page_for_cache,
       continue;
     }
 
+    if (CPDF_PathObject* path = po->AsPath()) {
+      // Get the path's bounding box and transform it to page coordinates.
+      CFX_Matrix total_transform = to_page * path->matrix();
+      CFX_FloatRect path_bbox_page = total_transform.TransformRect(path->path().GetBoundingBox());
+      path_bbox_page.Normalize();
+
+      // Check if the path's bounding box is completely inside any redaction rect.
+      for (const auto& redact_rect : page_rects) {
+        if (path_bbox_page.left >= redact_rect.left &&
+            path_bbox_page.right <= redact_rect.right &&
+            path_bbox_page.bottom >= redact_rect.bottom &&
+            path_bbox_page.top <= redact_rect.top) {
+          
+          to_remove.push_back(path);
+          changed = true;
+          break;
+        }
+      }
+      continue;
+    }
+
     if (recurse_forms) {
       if (CPDF_FormObject* fo = po->AsForm()) {
         CPDF_Form* form = fo->form();
         if (!form)
           continue;
 
-        const CFX_Matrix placement = fo->form_matrix();  // object -> parent
+        const CFX_Matrix placement = fo->form_matrix();
         const CFX_Matrix next_to_page = to_page * placement;
-
-        const bool form_changed =
-          RedactHolder(page_for_cache, form, page_rects, next_to_page, /*recurse_forms=*/true, fill_black);
+        const bool form_changed = RedactHolder(page_for_cache, form, page_rects, next_to_page, true, fill_black);
 
         if (form_changed) {
           CPDF_PageContentGenerator form_gen(form);
@@ -562,10 +582,11 @@ bool RedactHolder(CPDF_Page* page_for_cache,
     }
   }
 
-  // Physically remove fully emptied text objects.
+  // Physically remove fully emptied text and path objects.
   if (!to_remove.empty()) {
-    for (CPDF_PageObject* obj : to_remove)
+    for (CPDF_PageObject* obj : to_remove) {
       holder->RemovePageObject(obj);
+    }
     changed = true;
   }
 
