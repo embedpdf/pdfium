@@ -436,11 +436,6 @@ static bool RedactImageObject(CPDF_Page* page,
   // palette carries alpha (PNG paletted transparency).
   bool process_alpha = is_bgra32 || !!orig_smask_stream || (is_indexed8 && palette_has_alpha);
 
-  // Logging to help diagnose tricky images.
-  printf("DEBUG: W=%d H=%d bpp=%d gray8=%d rgb24=%d bgra32=%d bgrx32=%d indexed8=%d pal=%zu palA=%d smask=%p\n",
-         W, H, bpp, is_gray8, is_rgb24, is_bgra32, is_bgrx32,
-         is_indexed8, palette.size(), palette_has_alpha, orig_smask_stream.Get());
-
   if (process_alpha) {
     out_a.resize(static_cast<size_t>(W) * static_cast<size_t>(H));
     if (orig_smask_stream && !is_bgra32) {
