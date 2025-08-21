@@ -25,8 +25,3 @@ extern "C" size_t EPDF_WebP_EncodeRGBA(uint8_t* rgba,
   // Lossy encoder (fast, good for docs). Returns 0 on failure.
   return WebPEncodeRGBA(rgba, width, height, stride, q, out_ptr);
 }
-
-extern "C" void EPDF_WebP_Free(void* p) {
-  if (p)
-    WebPFree(p);
-}

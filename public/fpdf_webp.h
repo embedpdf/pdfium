@@ -16,11 +16,8 @@ EPDF_WebP_EncodeRGBA(uint8_t* rgba,
                      float quality,
                      uint8_t** out_ptr);
 
-FPDF_EXPORT void FPDF_CALLCONV
-EPDF_WebP_Free(void* p);
-
 #ifdef __cplusplus
 }
 #endif
 
-#endif    
+#endif        

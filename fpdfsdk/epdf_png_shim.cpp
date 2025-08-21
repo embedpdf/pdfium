@@ -26,7 +26,7 @@ static void EnsureCap(png_structp png_ptr, MemBuf* m, size_t need) {
   if (!p) png_error(png_ptr, "EPDF_PNG: OOM");
   m->data = p;
   m->cap = new_cap;
-}
+} 
 
 static void PngWrite(png_structp png_ptr, png_bytep data, png_size_t len) {
   MemBuf* m = static_cast<MemBuf*>(png_get_io_ptr(png_ptr));

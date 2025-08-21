@@ -9,6 +9,7 @@ source_set("fpdfsdk") {
   sources = [
     "epdf_webp_shim.cpp",
     "epdf_png_shim.cpp",
+    "epdf_jpeg_shim.cpp",
     "cpdfsdk_annot.cpp",
     "cpdfsdk_annot.h",
     "cpdfsdk_annotiteration.cpp",
@@ -70,6 +71,7 @@ source_set("fpdfsdk") {
   deps = [
     "//third_party/libwebp:webp_enc",
     "//third_party/libpng",
+    "//third_party/libjpeg_turbo:libjpeg",
     "../:pdfium_public_headers",
     "../constants",
     "../core/fdrm",
