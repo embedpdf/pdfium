@@ -431,6 +431,29 @@ FPDF_GetPageLabel(FPDF_DOCUMENT document,
                   void* buffer,
                   unsigned long buflen);
 
+// Experimental EmbedPDF Extension API.
+// Set meta-data |tag| content in |document|.
+//
+//   document - handle to the document.
+//   tag      - the tag to set.
+//   value    - the value to set.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_SetMetaText(FPDF_DOCUMENT document,
+                  FPDF_BYTESTRING tag,
+                  FPDF_WIDESTRING value);
+
+// Experimental EmbedPDF Extension API.
+// Check if meta-data |tag| exists in |document|.
+//
+//   document - handle to the document.
+//   tag      - the tag to check.
+//
+// Returns true if |tag| exists in |document|.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_HasMetaText(FPDF_DOCUMENT document, FPDF_BYTESTRING tag);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

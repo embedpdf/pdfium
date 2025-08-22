@@ -617,6 +617,19 @@ RetainPtr<CPDF_Dictionary> CPDF_Document::GetInfo() {
   return info_dict_;
 }
 
+RetainPtr<CPDF_Dictionary> CPDF_Document::GetOrCreateInfo() {
+  if (info_dict_)
+    return info_dict_;
+
+  // If parser already has an Info object, reuse it (this populates info_dict_).
+  if (RetainPtr<CPDF_Dictionary> existing = GetInfo())
+    return existing;
+
+  // No Info present: create a new indirect dictionary and cache it.
+  info_dict_ = NewIndirect<CPDF_Dictionary>();
+  return info_dict_;
+}
+
 RetainPtr<const CPDF_Array> CPDF_Document::GetFileIdentifier() const {
   return parser_ ? parser_->GetIDArray() : nullptr;
 }
