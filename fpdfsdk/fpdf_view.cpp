@@ -869,30 +869,21 @@ EPDF_RenderAnnotBitmap(FPDF_BITMAP bitmap,
   CFX_DIBitmap::ScopedPremultiplier scoped(pBitmap);
 #endif
 
-  // ---------------------------------------------------------------- device
   auto device = std::make_unique<CFX_DefaultRenderDevice>();
   device->AttachWithRgbByteOrder(std::move(pBitmap),
                                  !!(flags & FPDF_REVERSE_BYTE_ORDER));
 
-
-  // Get the annotation's authoritative bounding box.
-  CFX_FloatRect bbox = pAnnot->GetRect();
-
-  // 1. Start with a matrix that translates the annotation's content to the origin (0,0).
-  CFX_Matrix ctm(1, 0, 0, 1, -bbox.left, -bbox.bottom);
-
-  // 2. Then, apply the scale and flip matrix provided by the caller.
-  // The order of operations is now: (1) translate to origin, (2) scale and flip.
-  if (matrix) {
+  //   CTM = DisplayMatrix * userMatrix * Translate(bbox.left, bbox.bottom)
+  CFX_Matrix ctm = pPage->GetDisplayMatrix();
+  if (matrix)
     ctm.Concat(CFXMatrixFromFSMatrix(*matrix));
-  }
 
   // Draw appearance
   const bool ok = pAnnot->DrawAppearance(
       pPage, device.get(), ctm,
       static_cast<CPDF_Annot::AppearanceMode>(appearanceMode));
 
-  return ok ? true : false;
+  return ok;
 }
 
 #if defined(PDF_USE_SKIA)
