@@ -579,3 +579,43 @@ FPDF_GetPageLabel(FPDF_DOCUMENT document,
   return Utf16EncodeMaybeCopyAndReturnLength(
       str.value(), UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
 }
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_SetMetaText(FPDF_DOCUMENT document,
+                 FPDF_BYTESTRING tag,
+                 FPDF_WIDESTRING value) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc || !tag)
+    return false;
+
+  // Create /Info if it does not exist.
+  RetainPtr<CPDF_Dictionary> info = pDoc->GetOrCreateInfo();
+  if (!info)
+    return false;
+
+  ByteString key(tag);
+  WideString wide =
+      value ? UNSAFE_BUFFERS(WideStringFromFPDFWideString(value)) : WideString();
+
+  if (wide.IsEmpty()) {
+    // RemoveFor() expects ByteStringView.
+    info->RemoveFor(key.AsStringView());
+    return true;
+  }
+
+  // Store as Unicode CPDF_String (same pattern as FPDFAnnot_SetStringValue).
+  info->SetNewFor<CPDF_String>(key, wide.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_HasMetaText(FPDF_DOCUMENT document, FPDF_BYTESTRING tag) {
+  if (!tag) return false;
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  
+  if (!pDoc) return false;
+  RetainPtr<const CPDF_Dictionary> info = pDoc->GetInfo();
+
+  if (!info) return false;
+  return info->KeyExist(tag);
+}

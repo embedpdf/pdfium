@@ -97,6 +97,7 @@ class CPDF_Document : public Observable,
   const CPDF_Dictionary* GetRoot() const { return root_dict_.Get(); }
   RetainPtr<CPDF_Dictionary> GetMutableRoot() { return root_dict_; }
   RetainPtr<CPDF_Dictionary> GetInfo();
+  RetainPtr<CPDF_Dictionary> GetOrCreateInfo();
   RetainPtr<const CPDF_Array> GetFileIdentifier() const;
 
   // Returns the object number for the deleted page, or 0 on failure.

@@ -1537,6 +1537,17 @@ FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV
 EPDFPage_GetAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index);
 
 // Experimental EmbedPDF Extension API.
+// Remove the annotation by index.
+//
+//   doc    - handle to a document.
+//   page_index - the index of the page.
+//   index    - the index of the annotation.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
+EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index);
+
+// Experimental EmbedPDF Extension API.
 // Set the icon of an annotation.
 //
 //   annot    - handle to an annotation.

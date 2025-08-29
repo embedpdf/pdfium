@@ -3129,6 +3129,44 @@ EPDFPage_GetAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index) {
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index) {
+  CPDF_Document* pdf = CPDFDocumentFromFPDFDocument(doc);
+  if (!pdf || page_index < 0 || page_index >= pdf->GetPageCount() || index < 0)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> page_dict = pdf->GetMutablePageDictionary(page_index);
+  if (!page_dict)
+    return false;
+
+  RetainPtr<CPDF_Array> annots = page_dict->GetMutableArrayFor("Annots");
+  if (!annots || static_cast<size_t>(index) >= annots->size())
+    return false;
+
+  // Keep original entry so we can determine if it was indirect.
+  RetainPtr<CPDF_Object> entry = annots->GetMutableObjectAt(index);
+
+  // Resolve to dictionary for fallback objnum detection.
+  RetainPtr<CPDF_Dictionary> dict =
+      ToDictionary(entry ? entry->GetMutableDirect() : nullptr);
+
+  uint32_t objnum = 0;
+  if (entry && entry->IsReference()) {
+    objnum = entry->AsReference()->GetRefObjNum();
+  } else if (dict) {
+    objnum = dict->GetObjNum();
+  }
+
+  // Remove from /Annots.
+  annots->RemoveAt(index);
+
+  // If it was indirect, delete the annot object to avoid leaving orphans.
+  if (objnum)
+    pdf->DeleteIndirectObject(objnum);
+
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_SetIcon(FPDF_ANNOTATION annot, FPDF_ANNOT_ICON icon) {
   RetainPtr<CPDF_Dictionary> dict =
       GetMutableAnnotDictFromFPDFAnnotation(annot);

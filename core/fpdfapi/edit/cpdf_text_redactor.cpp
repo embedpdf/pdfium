@@ -335,17 +335,22 @@ static bool RedactImageObject(CPDF_Page* page,
                               pdfium::span<const CFX_FloatRect> page_rects,
                               const CFX_Matrix& parent_to_page,
                               bool fill_black) {
-  if (!iobj) return false;
+  if (!iobj)
+    return false;
   CPDF_Image* image = iobj->GetImage();
-  if (!image) return false;
+  if (!image)
+    return false;
 
   CPDF_Document* doc = page->GetDocument();
   const int W = image->GetPixelWidth();
   const int H = image->GetPixelHeight();
-  if (W <= 0 || H <= 0) return false;
+  if (W <= 0 || H <= 0)
+    return false;
 
+  // Object -> page for this placement.
   const CFX_Matrix img_to_page = parent_to_page * iobj->matrix();
 
+  // Quick reject using unit bbox in page space.
   const CFX_FloatRect img_bbox_page =
       img_to_page.TransformRect(CFX_FloatRect(0, 0, 1.0f, 1.0f));
   bool touches = false;
@@ -356,36 +361,55 @@ static bool RedactImageObject(CPDF_Page* page,
       break;
     }
   }
-  if (!touches) return false;
+  if (!touches)
+    return false;
 
+  // Decode source.
   RetainPtr<CFX_DIBBase> dib = image->LoadDIBBase();
-  if (!dib) return false;
+  if (!dib)
+    return false;
 
-  const int bpp = dib->GetBPP();
+  const int bpp        = dib->GetBPP();
+  const bool is_mask   = dib->IsMaskFormat();
   const bool has_alpha = dib->IsAlphaFormat();
-  const bool is_gray8 = (bpp == 8) && !dib->IsMaskFormat();
-  const bool is_rgb24 = (bpp == 24);
-  const bool is_bgra32 = (bpp == 32) && has_alpha;
+
+  const bool is_gray8  = (bpp == 8)  && !is_mask;   // may be true for real gray OR indexed
+  const bool is_rgb24  = (bpp == 24);
+  const bool is_bgra32 = (bpp == 32) &&  has_alpha;
   const bool is_bgrx32 = (bpp == 32) && !has_alpha;
 
+  // Palette detection for indexed-8 images (PNG paletted path).
+  auto palette = dib->GetPaletteSpan();             // span<const uint32_t> ARGB (0xAARRGGBB)
+  const bool is_indexed8 = is_gray8 && !palette.empty();
+
+  bool palette_has_alpha = false;
+  if (is_indexed8) {
+    for (uint32_t c : palette) {
+      if ((c >> 24) != 0xFF) { palette_has_alpha = true; break; }
+    }
+  }
+
   if (!(is_gray8 || is_rgb24 || is_bgra32 || is_bgrx32)) {
+    // Unsupported source format.
     return false;
   }
 
+  // If the image has an SMask, keep it so we preserve transparency.
   RetainPtr<const CPDF_Stream> orig_smask_stream;
   if (image->GetStream()) {
     RetainPtr<const CPDF_Dictionary> idict = image->GetStream()->GetDict();
     if (idict) {
       RetainPtr<const CPDF_Object> smask_obj = idict->GetDirectObjectFor("SMask");
-      if (smask_obj && smask_obj->AsStream()) {
+      if (smask_obj && smask_obj->AsStream())
         orig_smask_stream = pdfium::WrapRetain(smask_obj->AsStream());
-      }
     }
   }
 
+  // Map page-space rects into image pixel space (bottom-up).
   std::vector<CFX_FloatRect> img_rects;
   PageRectsToImageGrid(img_to_page, W, H, page_rects, &img_rects);
-  if (img_rects.empty()) return false;
+  if (img_rects.empty())
+    return false;
 
   struct IRect { int x0, y0, x1, y1; };
   std::vector<IRect> boxes;
@@ -393,84 +417,120 @@ static bool RedactImageObject(CPDF_Page* page,
   for (const auto& r : img_rects) {
     IRect b;
     b.x0 = std::max(0, std::min(W, static_cast<int>(std::floor(r.left))));
-    b.x1 = std::max(0, std::min(W, static_cast<int>(std::ceil(r.right))));
+    b.x1 = std::max(0, std::min(W, static_cast<int>(std::ceil (r.right))));
     b.y0 = std::max(0, std::min(H, static_cast<int>(std::floor(r.bottom))));
-    b.y1 = std::max(0, std::min(H, static_cast<int>(std::ceil(r.top))));
+    b.y1 = std::max(0, std::min(H, static_cast<int>(std::ceil (r.top))));
     if (b.x1 > b.x0 && b.y1 > b.y0)
       boxes.push_back(b);
   }
-  if (boxes.empty()) return false;
+  if (boxes.empty())
+    return false;
 
   const uint8_t fill_val = fill_black ? 0x00 : 0xFF;
-  DataVector<uint8_t> out_rgb(static_cast<size_t>(W) * H * 3);
-  DataVector<uint8_t> out_a; // Alpha channel buffer.
 
-  const bool process_alpha = is_bgra32 || !!orig_smask_stream;
+  // Build new decoded buffers.
+  DataVector<uint8_t> out_rgb(static_cast<size_t>(W) * static_cast<size_t>(H) * 3u);
+  DataVector<uint8_t> out_a;  // only used if we have/keep alpha
+
+  // We need an alpha plane if: original was BGRA32, or there was an SMask, or
+  // palette carries alpha (PNG paletted transparency).
+  bool process_alpha = is_bgra32 || !!orig_smask_stream || (is_indexed8 && palette_has_alpha);
 
   if (process_alpha) {
-    out_a.resize(static_cast<size_t>(W) * H);
+    out_a.resize(static_cast<size_t>(W) * static_cast<size_t>(H));
     if (orig_smask_stream && !is_bgra32) {
       auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(orig_smask_stream);
       acc->LoadAllDataFiltered();
       pdfium::span<const uint8_t> span = acc->GetSpan();
-      if (span.size() >= out_a.size()) {
+      if (span.size() >= out_a.size())
         memcpy(out_a.data(), span.data(), out_a.size());
+      else {
+        memcpy(out_a.data(), span.data(), span.size());
+        std::fill(out_a.begin() + static_cast<ptrdiff_t>(span.size()),
+                  out_a.end(), 0xFF);
       }
+    } else {
+      // Default opaque; specific formats will overwrite per pixel below.
+      std::fill(out_a.begin(), out_a.end(), 0xFF);
     }
   }
 
   size_t total_redacted_px = 0;
 
   for (int row_top = 0; row_top < H; ++row_top) {
-    const int y_img = H - 1 - row_top;
+    const int y_img = H - 1 - row_top;  // convert to bottom-up index
     const pdfium::span<const uint8_t> sline = dib->GetScanline(row_top);
-    uint8_t* drow_rgb = out_rgb.data() + static_cast<size_t>(row_top) * W * 3;
+    uint8_t* drow_rgb = out_rgb.data() + static_cast<size_t>(row_top) * static_cast<size_t>(W) * 3u;
+    uint8_t* arow     = process_alpha ? (out_a.data() + static_cast<size_t>(row_top) * static_cast<size_t>(W)) : nullptr;
+
+    if (sline.empty()) {
+      // Defensive: fill whole row as redacted.
+      std::fill(drow_rgb, drow_rgb + static_cast<size_t>(W) * 3u, fill_val);
+      if (process_alpha)
+        std::fill(arow, arow + static_cast<size_t>(W), 0xFF);
+      total_redacted_px += static_cast<size_t>(W);
+      continue;
+    }
 
     for (int x = 0; x < W; ++x) {
-      const bool red = IntersectsAny({static_cast<float>(x), static_cast<float>(y_img),
-                                       static_cast<float>(x + 1), static_cast<float>(y_img + 1)},
-                                       img_rects); // FIXED: Removed pdfium::make_span
+      const bool red = IntersectsAny(
+          {static_cast<float>(x), static_cast<float>(y_img),
+           static_cast<float>(x + 1), static_cast<float>(y_img + 1)}, img_rects);
 
       if (red) {
-        total_redacted_px++;
+        drow_rgb[3*x + 0] = fill_val;
+        drow_rgb[3*x + 1] = fill_val;
+        drow_rgb[3*x + 2] = fill_val;
+        if (process_alpha)
+          arow[x] = 0xFF;  // paint on top => force opaque under the box
+        ++total_redacted_px;
+        continue;
       }
 
-      if (red) {
-        drow_rgb[x * 3] = fill_val;
-        drow_rgb[x * 3 + 1] = fill_val;
-        drow_rgb[x * 3 + 2] = fill_val;
-      } else {
-        if (is_gray8) {
-          drow_rgb[x * 3] = drow_rgb[x * 3 + 1] = drow_rgb[x * 3 + 2] = sline[x];
-        } else if (is_rgb24) {
-          drow_rgb[x * 3] = sline[x * 3 + 2];
-          drow_rgb[x * 3 + 1] = sline[x * 3 + 1];
-          drow_rgb[x * 3 + 2] = sline[x * 3];
-        } else { // bgrx32 or bgra32
-          drow_rgb[x * 3] = sline[x * 4 + 2];
-          drow_rgb[x * 3 + 1] = sline[x * 4 + 1];
-          drow_rgb[x * 3 + 2] = sline[x * 4];
-        }
-      }
-
-      if (is_bgra32) {
-        out_a[static_cast<size_t>(row_top) * W + x] = sline[x * 4 + 3];
+      if (is_indexed8) {
+        // Expand palette index -> RGB (palette entries are ARGB 0xAARRGGBB).
+        const uint8_t idx  = sline[x];
+        const uint32_t argb = palette[idx];
+        drow_rgb[3*x + 0] = static_cast<uint8_t>((argb >> 16) & 0xFF);  // R
+        drow_rgb[3*x + 1] = static_cast<uint8_t>((argb >>  8) & 0xFF);  // G
+        drow_rgb[3*x + 2] = static_cast<uint8_t>( argb        & 0xFF);  // B
+        if (process_alpha && !orig_smask_stream && !is_bgra32 && palette_has_alpha)
+          arow[x] = static_cast<uint8_t>((argb >> 24) & 0xFF);
+      } else if (is_gray8) {
+        const uint8_t v = sline[x];
+        drow_rgb[3*x + 0] = v;
+        drow_rgb[3*x + 1] = v;
+        drow_rgb[3*x + 2] = v;
+        // alpha already handled via SMask if present
+      } else if (is_rgb24) {
+        drow_rgb[3*x + 0] = sline[3*x + 2];
+        drow_rgb[3*x + 1] = sline[3*x + 1];
+        drow_rgb[3*x + 2] = sline[3*x + 0];
+      } else {  // 32-bpp BGRA/BGRx
+        drow_rgb[3*x + 0] = sline[4*x + 2];
+        drow_rgb[3*x + 1] = sline[4*x + 1];
+        drow_rgb[3*x + 2] = sline[4*x + 0];
+        if (process_alpha && is_bgra32)
+          arow[x] = sline[4*x + 3];
       }
     }
   }
 
-  if (total_redacted_px == 0) return false;
+  if (total_redacted_px == 0)
+    return false;
 
+  // Ensure redaction regions are fully opaque in the SMask/alpha plane.
   if (process_alpha) {
     for (const auto& box : boxes) {
       for (int y = box.y0; y < box.y1; ++y) {
-        int row_top = H - 1 - y;
-        uint8_t* row_ptr = out_a.data() + static_cast<size_t>(row_top) * W;
-        std::fill(row_ptr + box.x0, row_ptr + box.x1, 255);
+        const int row_top = H - 1 - y;
+        uint8_t* row_ptr = out_a.data() + static_cast<size_t>(row_top) * static_cast<size_t>(W);
+        std::fill(row_ptr + box.x0, row_ptr + box.x1, 0xFF);
       }
     }
   }
 
+  // Build main image dict (decoded RGB).
   RetainPtr<CPDF_Dictionary> ndict = doc->New<CPDF_Dictionary>();
   ndict->SetNewFor<CPDF_Name>("Type", "XObject");
   ndict->SetNewFor<CPDF_Name>("Subtype", "Image");
@@ -479,6 +539,7 @@ static bool RedactImageObject(CPDF_Page* page,
   ndict->SetNewFor<CPDF_Name>("ColorSpace", "DeviceRGB");
   ndict->SetNewFor<CPDF_Number>("BitsPerComponent", 8);
 
+  // If we have/kept alpha, attach a soft mask.
   if (process_alpha) {
     RetainPtr<CPDF_Dictionary> smask_dict = doc->New<CPDF_Dictionary>();
     smask_dict->SetNewFor<CPDF_Name>("Type", "XObject");
@@ -488,15 +549,14 @@ static bool RedactImageObject(CPDF_Page* page,
     smask_dict->SetNewFor<CPDF_Name>("ColorSpace", "DeviceGray");
     smask_dict->SetNewFor<CPDF_Number>("BitsPerComponent", 8);
 
-    auto smask_stream =
+    RetainPtr<CPDF_Stream> smask_stream =
         pdfium::MakeRetain<CPDF_Stream>(std::move(out_a), std::move(smask_dict));
-    const uint32_t smask_obj_num = doc->AddIndirectObject(smask_stream);
-    auto smask_ref = pdfium::MakeRetain<CPDF_Reference>(doc, smask_obj_num);
-    ndict->SetFor("SMask", std::move(smask_ref));
+    const uint32_t smask_objnum = doc->AddIndirectObject(smask_stream);
+    ndict->SetFor("SMask", pdfium::MakeRetain<CPDF_Reference>(doc, smask_objnum));
   }
 
-  const bool ok = image->OverwriteStreamInPlace(
-      std::move(out_rgb), std::move(ndict), true);
+  const bool ok = image->OverwriteStreamInPlace(std::move(out_rgb), std::move(ndict),
+                                                /*data_is_decoded=*/true);
   if (ok) {
     image->ResetCache(page);
     page->ClearRenderContext();
