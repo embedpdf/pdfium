@@ -9,13 +9,16 @@
 #include <memory>
 #include <set>
 #include <utility>
+#include <vector>
 
 #include "constants/form_fields.h"
+#include "constants/metadata.h"
 #include "core/fpdfapi/page/cpdf_annotcontext.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
@@ -77,6 +80,57 @@ CPDF_LinkList* GetLinkList(CPDF_Page* page) {
   pList = pNewList.get();
   pDoc->SetLinksContext(std::move(pNewList));
   return pList;
+}
+
+using pdfium::metadata::kInfoAuthor;
+using pdfium::metadata::kInfoCreationDate;
+using pdfium::metadata::kInfoCreator;
+using pdfium::metadata::kInfoKeywords;
+using pdfium::metadata::kInfoModDate;
+using pdfium::metadata::kInfoProducer;
+using pdfium::metadata::kInfoSubject;
+using pdfium::metadata::kInfoTitle;
+using pdfium::metadata::kInfoTrapped;
+using pdfium::metadata::kNameFalse;
+using pdfium::metadata::kNameTrue;
+using pdfium::metadata::kNameUnknown;
+
+constexpr const char* kReservedInfoKeys[] = {
+    kInfoTitle, kInfoAuthor, kInfoSubject, kInfoKeywords,
+    kInfoProducer, kInfoCreator, kInfoCreationDate, kInfoModDate,
+    kInfoTrapped,
+};
+
+bool IsReservedInfoKey(ByteStringView key) {
+  for (const char* r : kReservedInfoKeys) {
+    if (key == r)
+      return true;
+  }
+  return false;
+}
+
+inline FPDF_TRAPPED_STATUS TrappedNameToStatus(ByteStringView name) {
+  if (name == kNameTrue)
+    return PDFTRAPPED_TRUE;
+  if (name == kNameFalse)
+    return PDFTRAPPED_FALSE;
+  if (name == kNameUnknown)
+    return PDFTRAPPED_UNKNOWN;
+  // Be forgiving on odd values.
+  return PDFTRAPPED_UNKNOWN;
+}
+
+inline ByteStringView StatusToTrappedName(FPDF_TRAPPED_STATUS status) {
+  switch (status) {
+    case PDFTRAPPED_TRUE:
+      return kNameTrue;
+    case PDFTRAPPED_FALSE:
+      return kNameFalse;
+    case PDFTRAPPED_UNKNOWN:
+      return kNameUnknown;
+    default:
+      return ByteStringView();  // invalid -> caller handles
+  }
 }
 
 }  // namespace
@@ -618,4 +672,106 @@ EPDF_HasMetaText(FPDF_DOCUMENT document, FPDF_BYTESTRING tag) {
 
   if (!info) return false;
   return info->KeyExist(tag);
+}
+
+FPDF_EXPORT FPDF_TRAPPED_STATUS FPDF_CALLCONV
+EPDF_GetMetaTrapped(FPDF_DOCUMENT document) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc)
+    return PDFTRAPPED_UNKNOWN;
+
+  RetainPtr<const CPDF_Dictionary> info = pDoc->GetInfo();
+  if (!info)
+    return PDFTRAPPED_NOTSET;
+
+  // SetNewFor() wants ByteString keys; RemoveFor() wants ByteStringView.
+  ByteString key_trapped(kInfoTrapped);
+
+  RetainPtr<const CPDF_Object> obj =
+      info->GetDirectObjectFor(key_trapped.AsStringView());
+  if (!obj)
+    return PDFTRAPPED_NOTSET;
+
+  if (const CPDF_Name* pName = ToName(obj.Get()))
+    return TrappedNameToStatus(pName->GetString().AsStringView());
+
+  // Lenient: some PDFs incorrectly store a boolean; read via the dict helper.
+  if (obj->IsBoolean()) {
+    const bool b = info->GetBooleanFor(key_trapped.AsStringView(), /*bDefault=*/false);
+    return b ? PDFTRAPPED_TRUE : PDFTRAPPED_FALSE;
+  }
+
+  return PDFTRAPPED_UNKNOWN;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_SetMetaTrapped(FPDF_DOCUMENT document, FPDF_TRAPPED_STATUS status) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> info = pDoc->GetOrCreateInfo();
+  if (!info)
+    return false;
+
+  ByteString key_trapped(kInfoTrapped);
+
+  if (status == PDFTRAPPED_NOTSET) {
+    info->RemoveFor(key_trapped.AsStringView());  // expects ByteStringView
+    return true;
+  }
+
+  ByteStringView name = StatusToTrappedName(status);
+  if (name.IsEmpty())
+    return false;  // invalid enum
+
+  info->SetNewFor<CPDF_Name>(key_trapped, ByteString(name));  // expects ByteString key
+  return true;
+}
+
+FPDF_EXPORT int FPDF_CALLCONV
+EPDF_GetMetaKeyCount(FPDF_DOCUMENT document, FPDF_BOOL custom_only) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc)
+    return 0;
+
+  RetainPtr<const CPDF_Dictionary> info = pDoc->GetInfo();
+  if (!info)
+    return 0;
+
+  int count = 0;
+  std::vector<ByteString> keys = info->GetKeys();
+  for (const ByteString& key : keys) {
+    if (custom_only && IsReservedInfoKey(key.AsStringView()))
+      continue;
+    ++count;
+  }
+  return count;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDF_GetMetaKeyName(FPDF_DOCUMENT document,
+                    int index,
+                    FPDF_BOOL custom_only,
+                    void* buffer,
+                    unsigned long buflen) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc || index < 0)
+    return 0;
+
+  RetainPtr<const CPDF_Dictionary> info = pDoc->GetInfo();
+  if (!info)
+    return 0;
+
+  int seen = 0;
+  std::vector<ByteString> keys = info->GetKeys();
+  for (const ByteString& key : keys) {
+    if (custom_only && IsReservedInfoKey(key.AsStringView()))
+      continue;
+    if (seen++ == index) {
+      return NulTerminateMaybeCopyAndReturnLength(
+          key, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+    }
+  }
+  return 0;
 }

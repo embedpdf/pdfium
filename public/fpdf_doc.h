@@ -45,6 +45,15 @@ typedef enum {
   FILEIDTYPE_CHANGING = 1
 } FPDF_FILEIDTYPE;
 
+// The trapped status of the document. See section 14.10.2.4 "Trapped" of the
+// ISO 32000-1:2008 spec.
+typedef enum FPDF_TRAPPED_STATUS {
+  PDFTRAPPED_NOTSET = 0,   // No /Trapped key
+  PDFTRAPPED_TRUE = 1,     // Explicitly /Trapped /True
+  PDFTRAPPED_FALSE = 2,    // Explicitly /Trapped /False
+  PDFTRAPPED_UNKNOWN = 3   // Explicitly /Trapped /Unknown or invalid
+} FPDF_TRAPPED_STATUS;
+
 // Get the first child of |bookmark|, or the first top-level bookmark item.
 //
 //   document - handle to the document.
@@ -453,6 +462,60 @@ EPDF_SetMetaText(FPDF_DOCUMENT document,
 // Returns true if |tag| exists in |document|.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDF_HasMetaText(FPDF_DOCUMENT document, FPDF_BYTESTRING tag);
+
+// Experimental EmbedPDF Extension API.
+// Get the trapped status of |document|.
+//
+//   document - handle to the document.
+//
+// Returns the trapped status of |document|.
+FPDF_EXPORT FPDF_TRAPPED_STATUS FPDF_CALLCONV
+EPDF_GetMetaTrapped(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
+// Set the trapped status of |document|.
+//
+//   document - handle to the document.
+//   status   - the trapped status to set.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_SetMetaTrapped(FPDF_DOCUMENT document, FPDF_TRAPPED_STATUS status);
+
+// Experimental EmbedPDF Extension API.
+// Get the number of keys in the document's Info dictionary.
+//
+//   document    - handle to the document.
+//   custom_only - if true, only count non-reserved (custom) keys; if false,
+//                 count all keys.
+//
+// Returns the number of keys (possibly 0). On error, returns 0.
+FPDF_EXPORT int FPDF_CALLCONV
+EPDF_GetMetaKeyCount(FPDF_DOCUMENT document, FPDF_BOOL custom_only);
+
+// Experimental EmbedPDF Extension API.
+// Get the name of the Info dictionary key at |index|.
+//
+//   document    - handle to the document.
+//   index       - 0-based key index in the order returned by PDFium.
+//   custom_only - if true, indexes only over non-reserved (custom) keys; if
+//                 false, indexes over all keys.
+//   buffer      - a buffer for the key name in UTF-8 with trailing NUL. May be NULL.
+//   buflen      - the length of the buffer, in bytes. May be 0.
+//
+// Returns the number of bytes in the key name including the trailing NUL, or 0
+// on error (bad |document|, |index| out of range, etc.). If |buflen| is less
+// than the returned length, or |buffer| is NULL, |buffer| will not be modified.
+//
+// Reserved keys (excluded when |custom_only| is true) are:
+//   Title, Author, Subject, Keywords, Producer, Creator,
+//   CreationDate, ModDate, Trapped.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDF_GetMetaKeyName(FPDF_DOCUMENT document,
+                    int index,
+                    FPDF_BOOL custom_only,
+                    void* buffer,
+                    unsigned long buflen);
 
 #ifdef __cplusplus
 }  // extern "C"
