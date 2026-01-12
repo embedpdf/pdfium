@@ -217,6 +217,31 @@ typedef enum EPDF_STAMP_FIT {
   EPDF_STAMP_FIT_STRETCH = 2   // ignore aspect, fill box
 } EPDF_STAMP_FIT;
 
+// Measure dictionary array types (X, Y, D, A, T, S)
+typedef enum EPDF_MEASURE_ARRAY_TYPE {
+  EPDF_MEASURE_X = 0,  // X-axis: points to display units conversion
+  EPDF_MEASURE_Y = 1,  // Y-axis: when different units/scale from X
+  EPDF_MEASURE_D = 2,  // Distance display format
+  EPDF_MEASURE_A = 3,  // Area display format
+  EPDF_MEASURE_T = 4,  // Angle (theta) display format
+  EPDF_MEASURE_S = 5   // Slope display format
+} EPDF_MEASURE_ARRAY_TYPE;
+
+// Number format style (F key in number format dict)
+typedef enum EPDF_NUMBER_FORMAT_STYLE {
+  EPDF_FORMAT_DECIMAL = 0,     // D - decimal
+  EPDF_FORMAT_FRACTIONAL = 1,  // F - fractional (e.g., 1/4)
+  EPDF_FORMAT_ROUND = 2,       // R - round to integer
+  EPDF_FORMAT_TRUNCATE = 3     // T - truncate to integer
+} EPDF_NUMBER_FORMAT_STYLE;
+
+// Number format label position (O key in number format dict)
+// Specifies where the unit label appears relative to the value
+typedef enum EPDF_NUMBER_FORMAT_LABEL_POS {
+  EPDF_LABEL_SUFFIX = 0,  // S - label after value (default), e.g., "5 in"
+  EPDF_LABEL_PREFIX = 1   // P - label before value, e.g., "$5"
+} EPDF_NUMBER_FORMAT_LABEL_POS;
+
 // Experimental API.
 // Check if an annotation subtype is currently supported for creation.
 // Currently supported subtypes:
@@ -1592,6 +1617,485 @@ EPDFAnnot_UpdateAppearanceToRect(FPDF_ANNOTATION annot, EPDF_STAMP_FIT fit);
 // Returns the annotation.
 FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV 
 EPDFPage_CreateAnnot(FPDF_PAGE page, FPDF_ANNOTATION_SUBTYPE subtype);
+
+// Experimental EmbedPDF Extension API.
+// Set the rotation of an annotation in degrees.
+//
+//   annot    - handle to an annotation.
+//   rotation - the rotation in degrees (any value, e.g. 0, 45.5, 90, 180, etc.).
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetRotate(FPDF_ANNOTATION annot, float rotation);
+
+// Experimental EmbedPDF Extension API.
+// Get the rotation of an annotation in degrees.
+//
+//   annot    - handle to an annotation.
+//   rotation - receives the rotation value in degrees.
+//
+// Returns true on success, false if annot is invalid or rotation is NULL.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetRotate(FPDF_ANNOTATION annot, float* rotation);
+
+// ============================================================================
+// MEASURE DICTIONARY API
+// Used for measurement annotations (distance, area, etc.)
+// ============================================================================
+
+// Experimental EmbedPDF Extension API.
+// Check if the annotation has a Measure dictionary.
+//
+//   annot - handle to an annotation.
+//
+// Returns true if the annotation has a Measure dictionary.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_HasMeasure(FPDF_ANNOTATION annot);
+
+// Experimental EmbedPDF Extension API.
+// Create a Measure dictionary on the annotation if it doesn't exist.
+//
+//   annot - handle to an annotation.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_CreateMeasure(FPDF_ANNOTATION annot);
+
+// Experimental EmbedPDF Extension API.
+// Remove the Measure dictionary from the annotation.
+//
+//   annot - handle to an annotation.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_RemoveMeasure(FPDF_ANNOTATION annot);
+
+// Experimental EmbedPDF Extension API.
+// Get the ratio string (R key) from the Measure dictionary.
+// Example: "1 in = 1 in"
+//
+//   annot  - handle to an annotation.
+//   buffer - buffer to receive the UTF-16LE encoded string.
+//   buflen - length of buffer in bytes.
+//
+// Returns the number of bytes needed (including null terminator).
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureRatio(FPDF_ANNOTATION annot,
+                          FPDF_WCHAR* buffer,
+                          unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the ratio string (R key) in the Measure dictionary.
+//
+//   annot - handle to an annotation.
+//   ratio - the ratio string (UTF-16LE), e.g., L"1 in = 1 in".
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureRatio(FPDF_ANNOTATION annot, FPDF_WIDESTRING ratio);
+
+// Experimental EmbedPDF Extension API.
+// Get the count of number format entries in an array (X, D, or A).
+//
+//   annot - handle to an annotation.
+//   type  - which array: EPDF_MEASURE_X, EPDF_MEASURE_D, or EPDF_MEASURE_A.
+//
+// Returns the count, or 0 if not found.
+FPDF_EXPORT int FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatCount(FPDF_ANNOTATION annot,
+                                EPDF_MEASURE_ARRAY_TYPE type);
+
+// Experimental EmbedPDF Extension API.
+// Add a new number format entry to an array (X, D, or A).
+// Creates the array if it doesn't exist.
+// The new entry is initialized with sensible defaults:
+// C=1.0, D=100, F=Decimal, O=Simple, RD="."
+//
+//   annot - handle to an annotation.
+//   type  - which array: EPDF_MEASURE_X, EPDF_MEASURE_D, or EPDF_MEASURE_A.
+//
+// Returns the index of the new entry, or -1 on failure.
+FPDF_EXPORT int FPDF_CALLCONV
+EPDFAnnot_AddMeasureFormat(FPDF_ANNOTATION annot,
+                           EPDF_MEASURE_ARRAY_TYPE type);
+
+// Experimental EmbedPDF Extension API.
+// Remove a number format entry from an array at the specified index.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry to remove.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_RemoveMeasureFormat(FPDF_ANNOTATION annot,
+                              EPDF_MEASURE_ARRAY_TYPE type,
+                              int index);
+
+// Experimental EmbedPDF Extension API.
+// Get the conversion factor (C key) from a number format entry.
+// This is the factor to convert from PDF points to the display unit.
+// Example: 0.0138889 converts points to inches (1/72).
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - receives the conversion factor.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatConversion(FPDF_ANNOTATION annot,
+                                     EPDF_MEASURE_ARRAY_TYPE type,
+                                     int index,
+                                     float* value);
+
+// Experimental EmbedPDF Extension API.
+// Set the conversion factor (C key) in a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - the conversion factor.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatConversion(FPDF_ANNOTATION annot,
+                                     EPDF_MEASURE_ARRAY_TYPE type,
+                                     int index,
+                                     float value);
+
+// Experimental EmbedPDF Extension API.
+// Get the denominator/precision (D key) from a number format entry.
+// Controls decimal precision (e.g., 100 = two decimal places).
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - receives the denominator.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatDenominator(FPDF_ANNOTATION annot,
+                                      EPDF_MEASURE_ARRAY_TYPE type,
+                                      int index,
+                                      int* value);
+
+// Experimental EmbedPDF Extension API.
+// Set the denominator/precision (D key) in a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - the denominator.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatDenominator(FPDF_ANNOTATION annot,
+                                      EPDF_MEASURE_ARRAY_TYPE type,
+                                      int index,
+                                      int value);
+
+// Experimental EmbedPDF Extension API.
+// Get the format style (F key) from a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - receives the format style.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatStyle(FPDF_ANNOTATION annot,
+                                EPDF_MEASURE_ARRAY_TYPE type,
+                                int index,
+                                EPDF_NUMBER_FORMAT_STYLE* value);
+
+// Experimental EmbedPDF Extension API.
+// Set the format style (F key) in a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - the format style.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatStyle(FPDF_ANNOTATION annot,
+                                EPDF_MEASURE_ARRAY_TYPE type,
+                                int index,
+                                EPDF_NUMBER_FORMAT_STYLE value);
+
+// Experimental EmbedPDF Extension API.
+// Get the label position (O key) from a number format entry.
+// Specifies whether the unit label appears before or after the value.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - receives the label position.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatLabelPosition(FPDF_ANNOTATION annot,
+                                        EPDF_MEASURE_ARRAY_TYPE type,
+                                        int index,
+                                        EPDF_NUMBER_FORMAT_LABEL_POS* value);
+
+// Experimental EmbedPDF Extension API.
+// Set the label position (O key) in a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - the label position.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatLabelPosition(FPDF_ANNOTATION annot,
+                                        EPDF_MEASURE_ARRAY_TYPE type,
+                                        int index,
+                                        EPDF_NUMBER_FORMAT_LABEL_POS value);
+
+// Experimental EmbedPDF Extension API.
+// Get the unit label (U key) from a number format entry.
+// Example: "in", "cm", "ft", "m"
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   buffer - buffer to receive the UTF-16LE encoded string.
+//   buflen - length of buffer in bytes.
+//
+// Returns the number of bytes needed.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatUnit(FPDF_ANNOTATION annot,
+                               EPDF_MEASURE_ARRAY_TYPE type,
+                               int index,
+                               FPDF_WCHAR* buffer,
+                               unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the unit label (U key) in a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   unit  - the unit string (UTF-16LE).
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatUnit(FPDF_ANNOTATION annot,
+                               EPDF_MEASURE_ARRAY_TYPE type,
+                               int index,
+                               FPDF_WIDESTRING unit);
+
+// Experimental EmbedPDF Extension API.
+// Get the prefix string (PS key) from a number format entry.
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   buffer - buffer to receive the UTF-16LE encoded string.
+//   buflen - length of buffer in bytes.
+//
+// Returns the number of bytes needed.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatPrefix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WCHAR* buffer,
+                                 unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the prefix string (PS key) in a number format entry.
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   prefix - the prefix string (UTF-16LE).
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatPrefix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WIDESTRING prefix);
+
+// Experimental EmbedPDF Extension API.
+// Get the suffix string (SS key) from a number format entry.
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   buffer - buffer to receive the UTF-16LE encoded string.
+//   buflen - length of buffer in bytes.
+//
+// Returns the number of bytes needed.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatSuffix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WCHAR* buffer,
+                                 unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the suffix string (SS key) in a number format entry.
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   suffix - the suffix string (UTF-16LE).
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatSuffix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WIDESTRING suffix);
+
+// Experimental EmbedPDF Extension API.
+// Get the decimal separator (RD key) from a number format entry.
+// Usually "." but can be "," for European locales.
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   buffer - buffer to receive the UTF-16LE encoded string.
+//   buflen - length of buffer in bytes.
+//
+// Returns the number of bytes needed.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatDecimalSeparator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_WCHAR* buffer,
+                                           unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the decimal separator (RD key) in a number format entry.
+//
+//   annot     - handle to an annotation.
+//   type      - which array.
+//   index     - index of the entry.
+//   separator - the decimal separator (UTF-16LE), e.g., L"." or L",".
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatDecimalSeparator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_WIDESTRING separator);
+
+// Experimental EmbedPDF Extension API.
+// Get the thousands separator (RT key) from a number format entry.
+// Default is "," (comma).
+//
+//   annot  - handle to an annotation.
+//   type   - which array.
+//   index  - index of the entry.
+//   buffer - buffer to receive the UTF-16LE encoded string.
+//   buflen - length of buffer in bytes.
+//
+// Returns the number of bytes needed.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatThousandsSeparator(FPDF_ANNOTATION annot,
+                                             EPDF_MEASURE_ARRAY_TYPE type,
+                                             int index,
+                                             FPDF_WCHAR* buffer,
+                                             unsigned long buflen);
+
+// Experimental EmbedPDF Extension API.
+// Set the thousands separator (RT key) in a number format entry.
+//
+//   annot     - handle to an annotation.
+//   type      - which array.
+//   index     - index of the entry.
+//   separator - the thousands separator (UTF-16LE), e.g., L"," or L".".
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatThousandsSeparator(FPDF_ANNOTATION annot,
+                                             EPDF_MEASURE_ARRAY_TYPE type,
+                                             int index,
+                                             FPDF_WIDESTRING separator);
+
+// Experimental EmbedPDF Extension API.
+// Get the fixed denominator flag (FD key) from a number format entry.
+// When true, fractional values may not have denominator reduced or
+// trailing zeros truncated.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - receives the fixed denominator flag.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatFixedDenominator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_BOOL* value);
+
+// Experimental EmbedPDF Extension API.
+// Set the fixed denominator flag (FD key) in a number format entry.
+//
+//   annot - handle to an annotation.
+//   type  - which array.
+//   index - index of the entry.
+//   value - the fixed denominator flag.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatFixedDenominator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_BOOL value);
+
+// Experimental EmbedPDF Extension API.
+// Get the origin (O key) from the Measure dictionary.
+// The origin specifies the starting point of the measurement coordinate
+// system in default user space coordinates.
+//
+//   annot - handle to an annotation.
+//   x     - receives the x coordinate of the origin.
+//   y     - receives the y coordinate of the origin.
+//
+// Returns true on success, false if origin is not set.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureOrigin(FPDF_ANNOTATION annot, float* x, float* y);
+
+// Experimental EmbedPDF Extension API.
+// Set the origin (O key) in the Measure dictionary.
+//
+//   annot - handle to an annotation.
+//   x     - the x coordinate of the origin.
+//   y     - the y coordinate of the origin.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureOrigin(FPDF_ANNOTATION annot, float x, float y);
+
+// Experimental EmbedPDF Extension API.
+// Get the Y-to-X conversion factor (CYX key) from the Measure dictionary.
+// Used to convert largest Y units to largest X units for calculations
+// when X and Y have different scales.
+//
+//   annot - handle to an annotation.
+//   value - receives the CYX value.
+//
+// Returns true on success, false if CYX is not set.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureCYX(FPDF_ANNOTATION annot, float* value);
+
+// Experimental EmbedPDF Extension API.
+// Set the Y-to-X conversion factor (CYX key) in the Measure dictionary.
+//
+//   annot - handle to an annotation.
+//   value - the CYX value.
+//
+// Returns true on success.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureCYX(FPDF_ANNOTATION annot, float value);
 
 #ifdef __cplusplus
 }  // extern "C"

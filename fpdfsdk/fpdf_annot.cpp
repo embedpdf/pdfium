@@ -3432,3 +3432,766 @@ EPDFPage_CreateAnnot(FPDF_PAGE page, FPDF_ANNOTATION_SUBTYPE subtype) {
   auto ctx = std::make_unique<CPDF_AnnotContext>(dict, IPDFPageFromFPDFPage(page));
   return FPDFAnnotationFromCPDFAnnotContext(ctx.release());
 }
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetRotate(FPDF_ANNOTATION annot, float rotation) {
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  if (rotation == 0.0f) {
+    // 0 is the default, so remove the key to keep the PDF clean.
+    dict->RemoveFor("Rotate");
+  } else {
+    dict->SetNewFor<CPDF_Number>("Rotate", rotation);
+  }
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetRotate(FPDF_ANNOTATION annot, float* rotation) {
+  if (!rotation)
+    return false;
+
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+
+  *rotation = dict->GetFloatFor("Rotate");
+  return true;
+}
+
+// ============================================================================
+// MEASURE DICTIONARY IMPLEMENTATION
+// ============================================================================
+
+namespace {
+
+// Helper: Convert measure array type enum to string key.
+const char* MeasureArrayTypeToString(EPDF_MEASURE_ARRAY_TYPE type) {
+  switch (type) {
+    case EPDF_MEASURE_X: return "X";
+    case EPDF_MEASURE_Y: return "Y";
+    case EPDF_MEASURE_D: return "D";
+    case EPDF_MEASURE_A: return "A";
+    case EPDF_MEASURE_T: return "T";
+    case EPDF_MEASURE_S: return "S";
+    default: return nullptr;
+  }
+}
+
+// Helper: Get the Measure dictionary from an annotation (const).
+const CPDF_Dictionary* GetMeasureDict(const CPDF_Dictionary* annot_dict) {
+  if (!annot_dict)
+    return nullptr;
+  return annot_dict->GetDictFor("Measure");
+}
+
+// Helper: Get the Measure dictionary from an annotation (mutable).
+RetainPtr<CPDF_Dictionary> GetMutableMeasureDict(
+    RetainPtr<CPDF_Dictionary> annot_dict) {
+  if (!annot_dict)
+    return nullptr;
+  return annot_dict->GetMutableDictFor("Measure");
+}
+
+// Helper: Get or create the Measure dictionary.
+RetainPtr<CPDF_Dictionary> GetOrCreateMeasureDict(
+    RetainPtr<CPDF_Dictionary> annot_dict) {
+  if (!annot_dict)
+    return nullptr;
+  RetainPtr<CPDF_Dictionary> measure = annot_dict->GetMutableDictFor("Measure");
+  if (!measure) {
+    measure = annot_dict->SetNewFor<CPDF_Dictionary>("Measure");
+    measure->SetNewFor<CPDF_Name>("Type", "Measure");
+    measure->SetNewFor<CPDF_Name>("Subtype", "RL");  // Rectilinear
+  }
+  return measure;
+}
+
+// Helper: Get the number format array (X, D, or A) from Measure dict (const).
+RetainPtr<const CPDF_Array> GetMeasureArray(const CPDF_Dictionary* measure,
+                                            EPDF_MEASURE_ARRAY_TYPE type) {
+  const char* key = MeasureArrayTypeToString(type);
+  if (!measure || !key)
+    return nullptr;
+  return measure->GetArrayFor(key);
+}
+
+// Helper: Get the number format array (mutable).
+RetainPtr<CPDF_Array> GetMutableMeasureArray(
+    RetainPtr<CPDF_Dictionary> measure,
+    EPDF_MEASURE_ARRAY_TYPE type) {
+  const char* key = MeasureArrayTypeToString(type);
+  if (!measure || !key)
+    return nullptr;
+  return measure->GetMutableArrayFor(key);
+}
+
+// Helper: Get or create the number format array.
+RetainPtr<CPDF_Array> GetOrCreateMeasureArray(
+    RetainPtr<CPDF_Dictionary> measure,
+    EPDF_MEASURE_ARRAY_TYPE type) {
+  const char* key = MeasureArrayTypeToString(type);
+  if (!measure || !key)
+    return nullptr;
+  RetainPtr<CPDF_Array> arr = measure->GetMutableArrayFor(key);
+  if (!arr)
+    arr = measure->SetNewFor<CPDF_Array>(key);
+  return arr;
+}
+
+// Helper: Get the number format dictionary at index (const).
+const CPDF_Dictionary* GetNumberFormatAt(const CPDF_Array* arr, int index) {
+  if (!arr || index < 0 || static_cast<size_t>(index) >= arr->size())
+    return nullptr;
+  return arr->GetDictAt(index);
+}
+
+// Helper: Get the number format dictionary at index (mutable).
+RetainPtr<CPDF_Dictionary> GetMutableNumberFormatAt(
+    RetainPtr<CPDF_Array> arr,
+    int index) {
+  if (!arr || index < 0 || static_cast<size_t>(index) >= arr->size())
+    return nullptr;
+  return arr->GetMutableDictAt(index);
+}
+
+// Helper: Convert string to format style enum.
+EPDF_NUMBER_FORMAT_STYLE StringToFormatStyle(const ByteString& name) {
+  if (name == "F") return EPDF_FORMAT_FRACTIONAL;
+  if (name == "R") return EPDF_FORMAT_ROUND;
+  if (name == "T") return EPDF_FORMAT_TRUNCATE;
+  return EPDF_FORMAT_DECIMAL;  // Default: D
+}
+
+// Helper: Convert format style enum to string.
+const char* FormatStyleToString(EPDF_NUMBER_FORMAT_STYLE style) {
+  switch (style) {
+    case EPDF_FORMAT_FRACTIONAL: return "F";
+    case EPDF_FORMAT_ROUND: return "R";
+    case EPDF_FORMAT_TRUNCATE: return "T";
+    case EPDF_FORMAT_DECIMAL:
+    default: return "D";
+  }
+}
+
+// Helper: Convert string to label position enum.
+EPDF_NUMBER_FORMAT_LABEL_POS StringToLabelPosition(const ByteString& name) {
+  if (name == "P") return EPDF_LABEL_PREFIX;
+  return EPDF_LABEL_SUFFIX;  // Default: S
+}
+
+// Helper: Convert label position enum to string.
+const char* LabelPositionToString(EPDF_NUMBER_FORMAT_LABEL_POS pos) {
+  switch (pos) {
+    case EPDF_LABEL_PREFIX: return "P";
+    case EPDF_LABEL_SUFFIX:
+    default: return "S";
+  }
+}
+
+}  // namespace
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_HasMeasure(FPDF_ANNOTATION annot) {
+  const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
+  return dict && dict->KeyExist("Measure");
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_CreateMeasure(FPDF_ANNOTATION annot) {
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+  GetOrCreateMeasureDict(dict);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_RemoveMeasure(FPDF_ANNOTATION annot) {
+  RetainPtr<CPDF_Dictionary> dict = GetMutableAnnotDictFromFPDFAnnotation(annot);
+  if (!dict)
+    return false;
+  dict->RemoveFor("Measure");
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureRatio(FPDF_ANNOTATION annot,
+                          FPDF_WCHAR* buffer,
+                          unsigned long buflen) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  WideString ratio = measure->GetUnicodeTextFor("R");
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      ratio, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureRatio(FPDF_ANNOTATION annot, FPDF_WIDESTRING ratio) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetOrCreateMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  WideString ws_ratio = UNSAFE_BUFFERS(WideStringFromFPDFWideString(ratio));
+  measure->SetNewFor<CPDF_String>("R", ws_ratio.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT int FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatCount(FPDF_ANNOTATION annot,
+                                EPDF_MEASURE_ARRAY_TYPE type) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  return arr ? fxcrt::CollectionSize<int>(*arr) : 0;
+}
+
+FPDF_EXPORT int FPDF_CALLCONV
+EPDFAnnot_AddMeasureFormat(FPDF_ANNOTATION annot,
+                           EPDF_MEASURE_ARRAY_TYPE type) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetOrCreateMeasureDict(annot_dict);
+  if (!measure)
+    return -1;
+
+  RetainPtr<CPDF_Array> arr = GetOrCreateMeasureArray(measure, type);
+  if (!arr)
+    return -1;
+
+  // Create new number format dictionary with sensible defaults.
+  // See PDF 32000-1:2008 Table 263 for defaults.
+  RetainPtr<CPDF_Dictionary> nf = arr->AppendNew<CPDF_Dictionary>();
+  nf->SetNewFor<CPDF_Name>("Type", "NumberFormat");
+  nf->SetNewFor<CPDF_Number>("C", 1.0f);      // Conversion factor
+  nf->SetNewFor<CPDF_Number>("D", 100);       // Denominator (2 decimal places)
+  nf->SetNewFor<CPDF_Name>("F", "D");         // Format: Decimal
+  nf->SetNewFor<CPDF_Name>("O", "S");         // Label position: Suffix
+  nf->SetNewFor<CPDF_String>("U", "");        // Unit label
+  nf->SetNewFor<CPDF_String>("RT", ",");      // Thousands separator (default)
+  nf->SetNewFor<CPDF_String>("RD", ".");      // Decimal separator (default)
+  nf->SetNewFor<CPDF_String>("PS", " ");      // Prefix spacing (default: space)
+  nf->SetNewFor<CPDF_String>("SS", " ");      // Suffix spacing (default: space)
+
+  return static_cast<int>(arr->size()) - 1;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_RemoveMeasureFormat(FPDF_ANNOTATION annot,
+                              EPDF_MEASURE_ARRAY_TYPE type,
+                              int index) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  if (!arr || index < 0 || static_cast<size_t>(index) >= arr->size())
+    return false;
+
+  arr->RemoveAt(index);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatConversion(FPDF_ANNOTATION annot,
+                                     EPDF_MEASURE_ARRAY_TYPE type,
+                                     int index,
+                                     float* value) {
+  if (!value)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return false;
+
+  *value = nf->GetFloatFor("C");
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatConversion(FPDF_ANNOTATION annot,
+                                     EPDF_MEASURE_ARRAY_TYPE type,
+                                     int index,
+                                     float value) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  nf->SetNewFor<CPDF_Number>("C", value);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatDenominator(FPDF_ANNOTATION annot,
+                                      EPDF_MEASURE_ARRAY_TYPE type,
+                                      int index,
+                                      int* value) {
+  if (!value)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return false;
+
+  *value = nf->GetIntegerFor("D");
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatDenominator(FPDF_ANNOTATION annot,
+                                      EPDF_MEASURE_ARRAY_TYPE type,
+                                      int index,
+                                      int value) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  nf->SetNewFor<CPDF_Number>("D", value);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatStyle(FPDF_ANNOTATION annot,
+                                EPDF_MEASURE_ARRAY_TYPE type,
+                                int index,
+                                EPDF_NUMBER_FORMAT_STYLE* value) {
+  if (!value)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return false;
+
+  *value = StringToFormatStyle(nf->GetNameFor("F"));
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatStyle(FPDF_ANNOTATION annot,
+                                EPDF_MEASURE_ARRAY_TYPE type,
+                                int index,
+                                EPDF_NUMBER_FORMAT_STYLE value) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  nf->SetNewFor<CPDF_Name>("F", FormatStyleToString(value));
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatLabelPosition(FPDF_ANNOTATION annot,
+                                        EPDF_MEASURE_ARRAY_TYPE type,
+                                        int index,
+                                        EPDF_NUMBER_FORMAT_LABEL_POS* value) {
+  if (!value)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return false;
+
+  *value = StringToLabelPosition(nf->GetNameFor("O"));
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatLabelPosition(FPDF_ANNOTATION annot,
+                                        EPDF_MEASURE_ARRAY_TYPE type,
+                                        int index,
+                                        EPDF_NUMBER_FORMAT_LABEL_POS value) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  nf->SetNewFor<CPDF_Name>("O", LabelPositionToString(value));
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatUnit(FPDF_ANNOTATION annot,
+                               EPDF_MEASURE_ARRAY_TYPE type,
+                               int index,
+                               FPDF_WCHAR* buffer,
+                               unsigned long buflen) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return 0;
+
+  WideString unit = nf->GetUnicodeTextFor("U");
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      unit, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatUnit(FPDF_ANNOTATION annot,
+                               EPDF_MEASURE_ARRAY_TYPE type,
+                               int index,
+                               FPDF_WIDESTRING unit) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  WideString ws_unit = UNSAFE_BUFFERS(WideStringFromFPDFWideString(unit));
+  nf->SetNewFor<CPDF_String>("U", ws_unit.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatPrefix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WCHAR* buffer,
+                                 unsigned long buflen) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return 0;
+
+  WideString prefix = nf->GetUnicodeTextFor("PS");
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      prefix, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatPrefix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WIDESTRING prefix) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  WideString ws_prefix = UNSAFE_BUFFERS(WideStringFromFPDFWideString(prefix));
+  nf->SetNewFor<CPDF_String>("PS", ws_prefix.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatSuffix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WCHAR* buffer,
+                                 unsigned long buflen) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return 0;
+
+  WideString suffix = nf->GetUnicodeTextFor("SS");
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      suffix, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatSuffix(FPDF_ANNOTATION annot,
+                                 EPDF_MEASURE_ARRAY_TYPE type,
+                                 int index,
+                                 FPDF_WIDESTRING suffix) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  WideString ws_suffix = UNSAFE_BUFFERS(WideStringFromFPDFWideString(suffix));
+  nf->SetNewFor<CPDF_String>("SS", ws_suffix.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatDecimalSeparator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_WCHAR* buffer,
+                                           unsigned long buflen) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return 0;
+
+  WideString rd = nf->GetUnicodeTextFor("RD");
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      rd, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatDecimalSeparator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_WIDESTRING separator) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  WideString ws_sep = UNSAFE_BUFFERS(WideStringFromFPDFWideString(separator));
+  nf->SetNewFor<CPDF_String>("RD", ws_sep.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatThousandsSeparator(FPDF_ANNOTATION annot,
+                                             EPDF_MEASURE_ARRAY_TYPE type,
+                                             int index,
+                                             FPDF_WCHAR* buffer,
+                                             unsigned long buflen) {
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return 0;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return 0;
+
+  WideString rt = nf->GetUnicodeTextFor("RT");
+  return Utf16EncodeMaybeCopyAndReturnLength(
+      rt, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatThousandsSeparator(FPDF_ANNOTATION annot,
+                                             EPDF_MEASURE_ARRAY_TYPE type,
+                                             int index,
+                                             FPDF_WIDESTRING separator) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  WideString ws_sep = UNSAFE_BUFFERS(WideStringFromFPDFWideString(separator));
+  nf->SetNewFor<CPDF_String>("RT", ws_sep.AsStringView());
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureFormatFixedDenominator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_BOOL* value) {
+  if (!value)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<const CPDF_Array> arr = GetMeasureArray(measure, type);
+  const CPDF_Dictionary* nf = GetNumberFormatAt(arr.Get(), index);
+  if (!nf)
+    return false;
+
+  *value = nf->GetBooleanFor("FD", false);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureFormatFixedDenominator(FPDF_ANNOTATION annot,
+                                           EPDF_MEASURE_ARRAY_TYPE type,
+                                           int index,
+                                           FPDF_BOOL value) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetMutableMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> arr = GetMutableMeasureArray(measure, type);
+  RetainPtr<CPDF_Dictionary> nf = GetMutableNumberFormatAt(arr, index);
+  if (!nf)
+    return false;
+
+  if (value) {
+    nf->SetNewFor<CPDF_Boolean>("FD", true);
+  } else {
+    nf->RemoveFor("FD");  // false is default, so remove
+  }
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureOrigin(FPDF_ANNOTATION annot, float* x, float* y) {
+  if (!x || !y)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<const CPDF_Array> origin = measure->GetArrayFor("O");
+  if (!origin || origin->size() < 2)
+    return false;
+
+  *x = origin->GetFloatAt(0);
+  *y = origin->GetFloatAt(1);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureOrigin(FPDF_ANNOTATION annot, float x, float y) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetOrCreateMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  RetainPtr<CPDF_Array> origin = measure->GetMutableArrayFor("O");
+  if (origin) {
+    origin->Clear();
+  } else {
+    origin = measure->SetNewFor<CPDF_Array>("O");
+  }
+
+  origin->AppendNew<CPDF_Number>(x);
+  origin->AppendNew<CPDF_Number>(y);
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_GetMeasureCYX(FPDF_ANNOTATION annot, float* value) {
+  if (!value)
+    return false;
+
+  const CPDF_Dictionary* annot_dict = GetAnnotDictFromFPDFAnnotation(annot);
+  const CPDF_Dictionary* measure = GetMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  if (!measure->KeyExist("CYX"))
+    return false;
+
+  *value = measure->GetFloatFor("CYX");
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFAnnot_SetMeasureCYX(FPDF_ANNOTATION annot, float value) {
+  RetainPtr<CPDF_Dictionary> annot_dict =
+      GetMutableAnnotDictFromFPDFAnnotation(annot);
+  RetainPtr<CPDF_Dictionary> measure = GetOrCreateMeasureDict(annot_dict);
+  if (!measure)
+    return false;
+
+  measure->SetNewFor<CPDF_Number>("CYX", value);
+  return true;
+}
