@@ -518,6 +518,40 @@ EPDF_GetMetaKeyName(FPDF_DOCUMENT document,
                     unsigned long buflen);
 
 // Experimental EmbedPDF Extension API.
+// Remove the document's XMP metadata stream (the catalog /Metadata entry).
+//
+//   document - handle to the document.
+//
+// XMP metadata (ISO 32000 §14.3.2) is stored separately from the Info
+// dictionary, so clearing Info via EPDF_SetMetaText() does not remove it. This
+// is the #1 redaction-sanitization miss: author/title/history can survive in
+// XMP. Returns true on success, including when no /Metadata is present.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveXMPMetadata(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
+// Remove every page's embedded thumbnail (the page /Thumb entry).
+//
+//   document - handle to the document.
+//
+// An embedded thumbnail can retain a pre-redaction image of the page. Returns
+// true on success, including when no thumbnails are present.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveEmbeddedThumbnails(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
+// Remove all document-level JavaScript from |document|: the catalog
+// /Names /JavaScript name tree, /OpenAction when it is a JavaScript action
+// (GoTo destinations are preserved), and the catalog /AA additional-actions
+// dictionary.
+//
+//   document - handle to the document.
+//
+// Returns true on success, including when no JavaScript is present.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveAllJavaScript(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
 // Create a new destination array of the form [page /XYZ left top zoom].
 //
 //   page     - handle to the destination page.
