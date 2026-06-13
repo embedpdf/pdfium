@@ -53,6 +53,7 @@ source_set("fpdfsdk") {
     "fpdf_javascript.cpp",
     "fpdf_ppo.cpp",
     "fpdf_progressive.cpp",
+    "fpdf_revision.cpp",
     "fpdf_save.cpp",
     "fpdf_searchex.cpp",
     "fpdf_signature.cpp",

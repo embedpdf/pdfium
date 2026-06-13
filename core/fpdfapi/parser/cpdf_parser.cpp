@@ -22,6 +22,7 @@
 #include "core/fpdfapi/parser/cpdf_object_stream.h"
 #include "core/fpdfapi/parser/cpdf_read_validator.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
+#include "core/fpdfapi/parser/cpdf_revision_provider.h"
 #include "core/fpdfapi/parser/cpdf_security_handler.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
@@ -468,6 +469,9 @@ bool CPDF_Parser::LoadAllCrossRefTablesAndStreams(FX_FILESIZE xref_offset) {
     xref_stream_ = true;
   }
 
+  revision_xref_list_ = xref_list;
+  revision_xref_stream_list_ = xref_stream_list;
+
   return true;
 }
 
@@ -673,6 +677,26 @@ bool CPDF_Parser::LoadCrossRefTable(FX_FILESIZE pos, bool skip) {
   }
 
   MergeCrossRefObjectsData(objects);
+  return true;
+}
+
+bool CPDF_Parser::ExtractCrossRefTableEntriesAt(FX_FILESIZE pos,
+                                                 ObjectMap* out_objects) {
+  if (!out_objects)
+    return false;
+
+  const FX_FILESIZE saved_pos = syntax_->GetPos();
+  syntax_->SetPos(pos);
+  std::vector<CrossRefObjData> objects;
+  bool ok = ParseCrossRefTable(&objects);
+  syntax_->SetPos(saved_pos);
+
+  if (!ok)
+    return false;
+
+  for (const auto& obj : objects)
+    (*out_objects)[obj.obj_num] = obj.info;
+
   return true;
 }
 
@@ -1390,6 +1414,21 @@ std::vector<unsigned int> CPDF_Parser::GetTrailerEnds() {
   // Stop recording trailer ends.
   syntax_->SetTrailerEnds(nullptr);
   return trailer_ends;
+}
+
+const CPDF_RevisionProvider* CPDF_Parser::GetRevisionProvider() {
+  if (!has_parsed_ || revision_xref_list_.empty())
+    return nullptr;
+
+  if (!revision_provider_) {
+    revision_provider_ = std::make_unique<CPDF_RevisionProvider>();
+    if (!revision_provider_->Build(this, revision_xref_list_,
+                                   revision_xref_stream_list_)) {
+      revision_provider_.reset();
+      return nullptr;
+    }
+  }
+  return revision_provider_.get();
 }
 
 bool CPDF_Parser::WriteToArchive(IFX_ArchiveStream* archive,

@@ -245,6 +245,21 @@ FPDF_DOCUMENT LoadDocumentImpl(RetainPtr<IFX_SeekableReadStream> pFileAccess,
   return FPDFDocumentFromCPDFDocument(document.release());
 }
 
+uint32_t BuildPermissionsForRevision(uint32_t allowed_flags) {
+  if (allowed_flags & EPDF_PERM_PRINT_HIGH) {
+    allowed_flags |= EPDF_PERM_PRINT;
+  }
+
+  uint32_t p = allowed_flags;
+
+  // PDF Reference 1.7, Table 3.20: bits 1-2 must be 0
+  p &= 0xFFFFFFFC;
+  // Bits 7-8 must be 1 (for R>=3), bits 13-32 must be 1
+  p |= 0xFFFFF0C0;
+
+  return p;
+}
+
 }  // namespace
 
 FPDF_EXPORT void FPDF_CALLCONV FPDF_InitLibrary() {
@@ -473,33 +488,6 @@ FPDF_GetSecurityHandlerRevision(FPDF_DOCUMENT document) {
   RetainPtr<const CPDF_Dictionary> dict = doc->GetParser()->GetEncryptDict();
   return dict ? dict->GetIntegerFor("R") : -1;
 }
-
-namespace {
-
-// Build P value with correct reserved bits for R>=3 (including R=4 and R=6)
-// Input: allowed_flags - OR'd combination of permission bits user wants to ALLOW
-// Output: proper P value with reserved bits set correctly
-uint32_t BuildPermissionsForRevision(uint32_t allowed_flags) {
-  // Enforce: PrintHighQuality implies Print (bit 12 requires bit 3)
-  // Some readers interpret oddly if PRINT_HIGH is set without PRINT
-  if (allowed_flags & EPDF_PERM_PRINT_HIGH) {
-    allowed_flags |= EPDF_PERM_PRINT;
-  }
-
-  // Start with allowed flags
-  uint32_t p = allowed_flags;
-
-  // Apply reserved bit requirements (PDF Reference 1.7, Table 3.20)
-  // Bits 1-2 must be 0
-  p &= 0xFFFFFFFC;
-  // Bits 7-8 must be 1 (for R>=3)
-  // Bits 13-32 must be 1
-  p |= 0xFFFFF0C0;
-
-  return p;
-}
-
-}  // namespace
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDF_SetEncryption(FPDF_DOCUMENT document,

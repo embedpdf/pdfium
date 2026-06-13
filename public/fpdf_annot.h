@@ -1588,12 +1588,18 @@ EPDFPage_GetAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm);
 
 // Remove the annotation by name.
 //
-//   page    - handle to a page.
-//   nm      - the name of the annotation.
+//   page         - handle to a page.
+//   nm           - the name of the annotation.
+//   form_handle  - handle to the form fill module (from
+//                  FPDFDOC_InitFormFillEnvironment). If non-null, the
+//                  widget's field entry is also removed from the AcroForm
+//                  field tree.  Pass NULL to skip field-tree cleanup.
 //
 // Returns true on success.
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
-EPDFPage_RemoveAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm);
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFPage_RemoveAnnotByName(FPDF_PAGE page,
+                           FPDF_WIDESTRING nm,
+                           FPDF_FORMHANDLE form_handle);
 
 // Set the linked annotation.
 
@@ -1644,13 +1650,20 @@ EPDFPage_GetAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index);
 // Experimental EmbedPDF Extension API.
 // Remove the annotation by index.
 //
-//   doc    - handle to a document.
-//   page_index - the index of the page.
-//   index    - the index of the annotation.
+//   doc          - handle to a document.
+//   page_index   - the index of the page.
+//   index        - the index of the annotation.
+//   form_handle  - handle to the form fill module (from
+//                  FPDFDOC_InitFormFillEnvironment). If non-null, the
+//                  widget's field entry is also removed from the AcroForm
+//                  field tree.  Pass NULL to skip field-tree cleanup.
 //
 // Returns true on success.
-FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV 
-EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index);
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc,
+                        int page_index,
+                        int index,
+                        FPDF_FORMHANDLE form_handle);
 
 // Experimental EmbedPDF Extension API.
 // Set the /Name entry of an annotation (icon name for text/file/sound,

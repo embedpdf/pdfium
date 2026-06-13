@@ -7,6 +7,7 @@
 #include "core/fpdfdoc/cpdf_interactiveform.h"
 
 #include <optional>
+#include <set>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -393,6 +394,45 @@ class CFieldNameExtractor {
   const WideString full_name_;
   size_t cur_ = 0;
 };
+
+uint32_t GetObjNumFromEntry(const CPDF_Object* entry) {
+  if (!entry)
+    return 0;
+  if (entry->IsReference())
+    return entry->AsReference()->GetRefObjNum();
+  const CPDF_Object* direct = entry->GetDirect();
+  return direct ? direct->GetObjNum() : 0;
+}
+
+bool RemoveChildFromKids(CPDF_Dictionary* pParent, uint32_t child_objnum) {
+  if (!pParent || child_objnum == 0)
+    return false;
+
+  RetainPtr<CPDF_Array> pKids = pParent->GetMutableArrayFor("Kids");
+  if (!pKids)
+    return false;
+
+  for (size_t i = 0; i < pKids->size(); ++i) {
+    if (GetObjNumFromEntry(pKids->GetObjectAt(i).Get()) == child_objnum) {
+      pKids->RemoveAt(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool RemoveFromFieldsArray(CPDF_Array* pFields, uint32_t objnum) {
+  if (!pFields || objnum == 0)
+    return false;
+
+  for (size_t i = 0; i < pFields->size(); ++i) {
+    if (GetObjNumFromEntry(pFields->GetObjectAt(i).Get()) == objnum) {
+      pFields->RemoveAt(i);
+      return true;
+    }
+  }
+  return false;
+}
 
 }  // namespace
 
@@ -887,7 +927,14 @@ void CPDF_InteractiveForm::LoadField(RetainPtr<CPDF_Dictionary> field_dict,
 }
 
 void CPDF_InteractiveForm::FixPageFields(CPDF_Page* page) {
-  RetainPtr<CPDF_Array> annots = page->GetMutableAnnotsArray();
+  FixPageFieldsFromDict(page->GetMutableDict().Get());
+}
+
+void CPDF_InteractiveForm::FixPageFieldsFromDict(CPDF_Dictionary* page_dict) {
+  if (!page_dict) {
+    return;
+  }
+  RetainPtr<CPDF_Array> annots = page_dict->GetMutableArrayFor("Annots");
   if (!annots) {
     return;
   }
@@ -897,6 +944,56 @@ void CPDF_InteractiveForm::FixPageFields(CPDF_Page* page) {
     if (annot && annot->GetNameFor("Subtype") == "Widget") {
       LoadField(std::move(annot), 0);
     }
+  }
+}
+
+void CPDF_InteractiveForm::RemoveWidgetFromFieldTree(
+    CPDF_Dictionary* widget_dict) {
+  if (!widget_dict || widget_dict->GetNameFor("Subtype") != "Widget")
+    return;
+  if (!form_dict_)
+    return;
+
+  RetainPtr<CPDF_Array> pFields = form_dict_->GetMutableArrayFor("Fields");
+  if (!pFields)
+    return;
+
+  uint32_t child_objnum = widget_dict->GetObjNum();
+
+  RetainPtr<CPDF_Dictionary> pParent =
+      widget_dict->GetMutableDictFor("Parent");
+
+  if (!pParent) {
+    RemoveFromFieldsArray(pFields.Get(), child_objnum);
+    return;
+  }
+
+  RemoveChildFromKids(pParent.Get(), child_objnum);
+
+  std::set<uint32_t> visited;
+  RetainPtr<CPDF_Dictionary> pNode = pParent;
+  while (pNode) {
+    uint32_t node_objnum = pNode->GetObjNum();
+    if (node_objnum && !visited.insert(node_objnum).second)
+      break;
+
+    RetainPtr<CPDF_Array> pKids = pNode->GetMutableArrayFor("Kids");
+    if (pKids && !pKids->IsEmpty())
+      break;
+
+    RetainPtr<CPDF_Dictionary> pGrandparent =
+        pNode->GetMutableDictFor("Parent");
+
+    if (pGrandparent) {
+      RemoveChildFromKids(pGrandparent.Get(), node_objnum);
+    } else {
+      RemoveFromFieldsArray(pFields.Get(), node_objnum);
+    }
+
+    if (node_objnum)
+      document_->DeleteIndirectObject(node_objnum);
+
+    pNode = pGrandparent;
   }
 }
 

@@ -1004,6 +1004,99 @@ static bool WrapAPContentIntoFormXObject(
                                   child_stream->GetObjNum());
   return true;
 }
+
+std::vector<CFX_FloatRect> GetRedactRectsFromAnnotDict(
+    const CPDF_Dictionary* annot_dict) {
+  std::vector<CFX_FloatRect> rects;
+  if (!annot_dict)
+    return rects;
+
+  RetainPtr<const CPDF_Array> quad_points_array =
+      annot_dict->GetArrayFor("QuadPoints");
+  if (quad_points_array && quad_points_array->size() >= 8) {
+    size_t quad_count = CPDF_Annot::QuadPointCount(quad_points_array.Get());
+    for (size_t i = 0; i < quad_count; ++i) {
+      CFX_FloatRect rect = CPDF_Annot::RectFromQuadPoints(annot_dict, i);
+      rect.Normalize();
+      if (!rect.IsEmpty())
+        rects.push_back(rect);
+    }
+    if (!rects.empty())
+      return rects;
+  }
+
+  CFX_FloatRect rect = annot_dict->GetRectFor(pdfium::annotation::kRect);
+  rect.Normalize();
+  if (!rect.IsEmpty())
+    rects.push_back(rect);
+
+  return rects;
+}
+
+void FlattenFormXObjectToPage(CPDF_Page* page,
+                              RetainPtr<const CPDF_Stream> form_stream,
+                              const CFX_FloatRect& target_rect) {
+  if (!page || !form_stream)
+    return;
+
+  CPDF_Document* doc = page->GetDocument();
+  if (!doc)
+    return;
+
+  RetainPtr<const CPDF_Dictionary> form_dict = form_stream->GetDict();
+  if (!form_dict)
+    return;
+
+  CFX_FloatRect form_bbox = form_dict->GetRectFor("BBox");
+  form_bbox.Normalize();
+  if (form_bbox.IsEmpty())
+    form_bbox = target_rect;
+
+  float scale_x = 1.0f;
+  float scale_y = 1.0f;
+  if (form_bbox.Width() > 0)
+    scale_x = target_rect.Width() / form_bbox.Width();
+  if (form_bbox.Height() > 0)
+    scale_y = target_rect.Height() / form_bbox.Height();
+
+  CFX_Matrix form_matrix;
+  form_matrix.a = scale_x;
+  form_matrix.d = scale_y;
+  form_matrix.e = target_rect.left - form_bbox.left * scale_x;
+  form_matrix.f = target_rect.bottom - form_bbox.bottom * scale_y;
+
+  auto form = std::make_unique<CPDF_Form>(
+      doc,
+      page->GetMutableResources(),
+      pdfium::WrapRetain(const_cast<CPDF_Stream*>(form_stream.Get())));
+  form->ParseContent();
+
+  auto form_obj = std::make_unique<CPDF_FormObject>(
+      CPDF_PageObject::kNoContentStream,
+      std::move(form),
+      form_matrix);
+
+  form_obj->CalcBoundingBox();
+  form_obj->SetDirty(true);
+
+  page->AppendPageObject(std::move(form_obj));
+}
+
+int GetAnnotIndexOnPage(CPDF_Page* page, const CPDF_Dictionary* annot_dict) {
+  if (!page || !annot_dict)
+    return -1;
+
+  RetainPtr<CPDF_Array> annots = page->GetMutableAnnotsArray();
+  if (!annots)
+    return -1;
+
+  for (size_t i = 0; i < annots->size(); ++i) {
+    if (annots->GetDictAt(i) == annot_dict)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
 }  // namespace
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
@@ -3446,7 +3539,9 @@ EPDFPage_GetAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm) {
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-EPDFPage_RemoveAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm) {
+EPDFPage_RemoveAnnotByName(FPDF_PAGE page,
+                           FPDF_WIDESTRING nm,
+                           FPDF_FORMHANDLE form_handle) {
   if (!page || !nm || !*nm)
     return false;
 
@@ -3461,29 +3556,29 @@ EPDFPage_RemoveAnnotByName(FPDF_PAGE page, FPDF_WIDESTRING nm) {
   WideString target = UNSAFE_BUFFERS(WideStringFromFPDFWideString(nm));
 
   for (size_t i = 0; i < annots->size(); ++i) {
-    // Keep the raw entry so we can see if it was a reference.
     RetainPtr<CPDF_Object> entry = annots->GetMutableObjectAt(i);
 
-    // Resolve to a dictionary to compare /NM.
     RetainPtr<CPDF_Dictionary> dict =
         ToDictionary(entry ? entry->GetMutableDirect() : nullptr);
     if (!dict || dict->GetUnicodeTextFor("NM") != target)
       continue;
 
-    // Determine indirect object number, if any.
     uint32_t objnum = 0;
     if (entry && entry->IsReference()) {
       objnum = entry->AsReference()->GetRefObjNum();
     } else if (dict) {
-      // Handles the case where the dict was promoted indirect but the Annots
-      // array still holds it directly.
       objnum = dict->GetObjNum();
     }
 
-    // Remove from /Annots.
+    if (form_handle) {
+      CPDFSDK_InteractiveForm* pForm =
+          FormHandleToInteractiveForm(form_handle);
+      if (pForm)
+        pForm->GetInteractiveForm()->RemoveWidgetFromFieldTree(dict.Get());
+    }
+
     annots->RemoveAt(i);
 
-    // If it was indirect, delete the object to avoid leaving an orphan.
     if (objnum)
       pPage->GetDocument()->DeleteIndirectObject(objnum);
 
@@ -3576,12 +3671,16 @@ EPDFPage_GetAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index) {
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
-EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index) {
+EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc,
+                        int page_index,
+                        int index,
+                        FPDF_FORMHANDLE form_handle) {
   CPDF_Document* pdf = CPDFDocumentFromFPDFDocument(doc);
   if (!pdf || page_index < 0 || page_index >= pdf->GetPageCount() || index < 0)
     return false;
 
-  RetainPtr<CPDF_Dictionary> page_dict = pdf->GetMutablePageDictionary(page_index);
+  RetainPtr<CPDF_Dictionary> page_dict =
+      pdf->GetMutablePageDictionary(page_index);
   if (!page_dict)
     return false;
 
@@ -3589,10 +3688,8 @@ EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index) {
   if (!annots || static_cast<size_t>(index) >= annots->size())
     return false;
 
-  // Keep original entry so we can determine if it was indirect.
   RetainPtr<CPDF_Object> entry = annots->GetMutableObjectAt(index);
 
-  // Resolve to dictionary for fallback objnum detection.
   RetainPtr<CPDF_Dictionary> dict =
       ToDictionary(entry ? entry->GetMutableDirect() : nullptr);
 
@@ -3603,10 +3700,15 @@ EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc, int page_index, int index) {
     objnum = dict->GetObjNum();
   }
 
-  // Remove from /Annots.
+  if (form_handle) {
+    CPDFSDK_InteractiveForm* pForm =
+        FormHandleToInteractiveForm(form_handle);
+    if (pForm)
+      pForm->GetInteractiveForm()->RemoveWidgetFromFieldTree(dict.Get());
+  }
+
   annots->RemoveAt(index);
 
-  // If it was indirect, delete the annot object to avoid leaving orphans.
   if (objnum)
     pdf->DeleteIndirectObject(objnum);
 
@@ -3946,116 +4048,6 @@ EPDFAnnot_GetOverlayTextRepeat(FPDF_ANNOTATION annot) {
 
   return dict->GetBooleanFor("Repeat", false);
 }
-
-namespace {
-
-// Helper to extract redaction rectangles from a REDACT annotation.
-// Returns QuadPoints if present, otherwise falls back to Rect.
-std::vector<CFX_FloatRect> GetRedactRectsFromAnnotDict(
-    const CPDF_Dictionary* annot_dict) {
-  std::vector<CFX_FloatRect> rects;
-  if (!annot_dict)
-    return rects;
-
-  // Try QuadPoints first (for text-based redactions)
-  RetainPtr<const CPDF_Array> quad_points_array =
-      annot_dict->GetArrayFor("QuadPoints");
-  if (quad_points_array && quad_points_array->size() >= 8) {
-    size_t quad_count = CPDF_Annot::QuadPointCount(quad_points_array.Get());
-    for (size_t i = 0; i < quad_count; ++i) {
-      CFX_FloatRect rect = CPDF_Annot::RectFromQuadPoints(annot_dict, i);
-      rect.Normalize();
-      if (!rect.IsEmpty())
-        rects.push_back(rect);
-    }
-    if (!rects.empty())
-      return rects;
-  }
-
-  // Fall back to Rect (for area-based redactions)
-  CFX_FloatRect rect = annot_dict->GetRectFor(pdfium::annotation::kRect);
-  rect.Normalize();
-  if (!rect.IsEmpty())
-    rects.push_back(rect);
-
-  return rects;
-}
-
-// Internal helper to flatten any Form XObject stream to page content.
-// Used by EPDFAnnot_Flatten (for AP/N) and EPDFAnnot_ApplyRedaction (for RO).
-void FlattenFormXObjectToPage(CPDF_Page* page,
-                              RetainPtr<const CPDF_Stream> form_stream,
-                              const CFX_FloatRect& target_rect) {
-  if (!page || !form_stream)
-    return;
-
-  CPDF_Document* doc = page->GetDocument();
-  if (!doc)
-    return;
-
-  // Get the form dictionary from the stream
-  RetainPtr<const CPDF_Dictionary> form_dict = form_stream->GetDict();
-  if (!form_dict)
-    return;
-
-  // Get the BBox from the form stream
-  CFX_FloatRect form_bbox = form_dict->GetRectFor("BBox");
-  form_bbox.Normalize();
-  if (form_bbox.IsEmpty())
-    form_bbox = target_rect;
-
-  // Calculate the transformation matrix to position the form at the target rect
-  // The form's content is defined in BBox coordinates, we need to map it to target_rect
-  float scale_x = 1.0f;
-  float scale_y = 1.0f;
-  if (form_bbox.Width() > 0)
-    scale_x = target_rect.Width() / form_bbox.Width();
-  if (form_bbox.Height() > 0)
-    scale_y = target_rect.Height() / form_bbox.Height();
-
-  CFX_Matrix form_matrix;
-  form_matrix.a = scale_x;
-  form_matrix.d = scale_y;
-  form_matrix.e = target_rect.left - form_bbox.left * scale_x;
-  form_matrix.f = target_rect.bottom - form_bbox.bottom * scale_y;
-
-  // Create a CPDF_Form from the stream
-  auto form = std::make_unique<CPDF_Form>(
-      doc,
-      page->GetMutableResources(),
-      pdfium::WrapRetain(const_cast<CPDF_Stream*>(form_stream.Get())));
-  form->ParseContent();
-
-  // Create a FormObject that wraps the form
-  auto form_obj = std::make_unique<CPDF_FormObject>(
-      CPDF_PageObject::kNoContentStream,
-      std::move(form),
-      form_matrix);
-
-  form_obj->CalcBoundingBox();
-  form_obj->SetDirty(true);
-
-  page->AppendPageObject(std::move(form_obj));
-}
-
-// Find the index of an annotation in the page's annotation array.
-// Returns -1 if not found.
-int GetAnnotIndexOnPage(CPDF_Page* page, const CPDF_Dictionary* annot_dict) {
-  if (!page || !annot_dict)
-    return -1;
-
-  RetainPtr<CPDF_Array> annots = page->GetMutableAnnotsArray();
-  if (!annots)
-    return -1;
-
-  for (size_t i = 0; i < annots->size(); ++i) {
-    if (annots->GetDictAt(i) == annot_dict)
-      return static_cast<int>(i);
-  }
-  return -1;
-}
-
-}  // namespace
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_ApplyRedaction(FPDF_PAGE page, FPDF_ANNOTATION annot) {
@@ -4859,6 +4851,7 @@ EPDFPage_CreateFormField(FPDF_PAGE page,
     case FPDF_FORMFIELD_COMBOBOX:
     case FPDF_FORMFIELD_LISTBOX:
     case FPDF_FORMFIELD_PUSHBUTTON:
+    case FPDF_FORMFIELD_SIGNATURE:
       break;
     default:
       return nullptr;
@@ -4890,6 +4883,9 @@ EPDFPage_CreateFormField(FPDF_PAGE page,
       break;
     case FPDF_FORMFIELD_LISTBOX:
       ft_value = "Ch";
+      break;
+    case FPDF_FORMFIELD_SIGNATURE:
+      ft_value = "Sig";
       break;
   }
 

@@ -15,6 +15,8 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_parser.h"
+#include "core/fpdfapi/parser/cpdf_revision_provider.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfdoc/cpdf_annot.h"
@@ -578,4 +580,15 @@ std::vector<uint32_t> ParsePageRangeString(const ByteString& bsPageRange,
     }
   }
   return results;
+}
+
+const CPDF_RevisionProvider* GetRevisionProviderFromDocument(
+    FPDF_DOCUMENT document) {
+  auto* doc = CPDFDocumentFromFPDFDocument(document);
+  if (!doc)
+    return nullptr;
+  CPDF_Parser* parser = doc->GetParser();
+  if (!parser)
+    return nullptr;
+  return parser->GetRevisionProvider();
 }

@@ -29,6 +29,7 @@ class CPDF_LinearizedHeader;
 class CPDF_Object;
 class CPDF_ObjectStream;
 class CPDF_ReadValidator;
+class CPDF_RevisionProvider;
 class CPDF_SecurityHandler;
 class CPDF_SyntaxParser;
 class IFX_ArchiveStream;
@@ -118,6 +119,16 @@ class CPDF_Parser {
 
   std::vector<unsigned int> GetTrailerEnds();
   bool WriteToArchive(IFX_ArchiveStream* archive, FX_FILESIZE src_size);
+
+  using ObjectMap = std::map<uint32_t, CPDF_CrossRefTable::ObjectInfo>;
+
+  // Re-parse a classic xref table at |pos| and return entries as an ObjectMap.
+  // Does not mutate cross_ref_table_ or any other parser state.
+  bool ExtractCrossRefTableEntriesAt(FX_FILESIZE pos, ObjectMap* out_objects);
+
+  // Returns the revision provider, building it lazily on first access.
+  // Returns nullptr if the parser has not successfully loaded a document.
+  const CPDF_RevisionProvider* GetRevisionProvider();
 
   const CPDF_CrossRefTable* GetCrossRefTableForTesting() const {
     return cross_ref_table_.get();
@@ -211,6 +222,12 @@ class CPDF_Parser {
   std::set<uint32_t> parsing_obj_nums_;
 
   RetainPtr<CPDF_SecurityHandler> security_handler_;
+
+  // Populated by LoadAllCrossRefTablesAndStreams.
+  // Index 0 = newest (main) revision. After Build() reversal, index 0 = oldest.
+  std::vector<FX_FILESIZE> revision_xref_list_;
+  std::vector<FX_FILESIZE> revision_xref_stream_list_;
+  std::unique_ptr<CPDF_RevisionProvider> revision_provider_;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_PARSER_H_

@@ -86,6 +86,43 @@ FPDF_SaveWithVersion(FPDF_DOCUMENT document,
                      FPDF_DWORD flags,
                      int file_version);
 
+// Experimental EmbedPDF Extension API.
+// Function: EPDF_SaveDocumentToBuffer
+//          Saves the document to a heap-allocated buffer.
+// Parameters:
+//          document    -   Handle to document, as returned by
+//                          FPDF_LoadDocument() or FPDF_CreateNewDocument().
+//          flags       -   Same flags as FPDF_SaveAsCopy (e.g. FPDF_INCREMENTAL).
+//          out_size    -   Pointer that receives the byte count of the saved data.
+// Return value:
+//          Pointer to a malloc'd buffer containing the saved PDF bytes,
+//          or nullptr on failure. Caller must free() the returned pointer.
+//
+FPDF_EXPORT void* FPDF_CALLCONV
+EPDF_SaveDocumentToBuffer(FPDF_DOCUMENT document,
+                          FPDF_DWORD flags,
+                          unsigned long* out_size);
+
+// Experimental EmbedPDF Extension API.
+// Function: EPDF_SaveDocumentToBufferWithVersion
+//          Same as EPDF_SaveDocumentToBuffer(), except the file version of the
+//          saved document can be specified by the caller.
+// Parameters:
+//          document        -   Handle to document.
+//          flags           -   Same flags as FPDF_SaveAsCopy.
+//          out_size        -   Pointer that receives the byte count.
+//          file_version    -   The PDF file version. File version: 14 for 1.4,
+//                              15 for 1.5, ...
+// Return value:
+//          Pointer to a malloc'd buffer, or nullptr on failure.
+//          Caller must free() the returned pointer.
+//
+FPDF_EXPORT void* FPDF_CALLCONV
+EPDF_SaveDocumentToBufferWithVersion(FPDF_DOCUMENT document,
+                                     FPDF_DWORD flags,
+                                     unsigned long* out_size,
+                                     int file_version);
+
 #ifdef __cplusplus
 }
 #endif

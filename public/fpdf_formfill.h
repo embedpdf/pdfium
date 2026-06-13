@@ -1823,6 +1823,47 @@ FORM_IsIndexSelected(FPDF_FORMHANDLE hHandle, FPDF_PAGE page, int index);
 //          into PDFium, performs no action and always returns FALSE.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDF_LoadXFA(FPDF_DOCUMENT document);
 
+// Experimental EmbedPDF Extension API.
+// Function: EPDF_FixPageFieldsRaw
+//          Register orphan widget annotations from a page's Annots array
+//          into the interactive form's field tree, without loading the full
+//          page via FPDF_LoadPage.  This must be called before using
+//          FPDFAnnot_GetFormFieldType on annotations obtained through
+//          EPDFPage_GetAnnotRaw.
+// Parameters:
+//          hHandle      -   Handle to the form fill module, as returned by
+//                           FPDFDOC_InitFormFillEnvironment().
+//          document     -   Handle to the document.
+//          page_index   -   0-based index of the page.
+// Return value:
+//          None.
+FPDF_EXPORT void FPDF_CALLCONV
+EPDF_FixPageFieldsRaw(FPDF_FORMHANDLE hHandle,
+                       FPDF_DOCUMENT document,
+                       int page_index);
+
+// Experimental EmbedPDF Extension API.
+// Function: EPDF_OpenFormFillInfo
+//          Allocates a zeroed FPDF_FORMFILLINFO struct with version set to 1.
+// Parameters:
+//          None.
+// Return value:
+//          Pointer to a new FPDF_FORMFILLINFO, or NULL on failure.
+//          Caller must free with EPDF_CloseFormFillInfo().
+//
+FPDF_EXPORT FPDF_FORMFILLINFO* FPDF_CALLCONV EPDF_OpenFormFillInfo();
+
+// Experimental EmbedPDF Extension API.
+// Function: EPDF_CloseFormFillInfo
+//          Frees a FPDF_FORMFILLINFO allocated by EPDF_OpenFormFillInfo().
+// Parameters:
+//          info    -   Pointer returned by EPDF_OpenFormFillInfo().
+// Return value:
+//          None.
+//
+FPDF_EXPORT void FPDF_CALLCONV
+EPDF_CloseFormFillInfo(FPDF_FORMFILLINFO* info);
+
 #ifdef __cplusplus
 }
 #endif

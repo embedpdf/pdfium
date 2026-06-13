@@ -354,4 +354,11 @@ void SetColorFromScheme(const FPDF_COLORSCHEME* pColorScheme,
 std::vector<uint32_t> ParsePageRangeString(const ByteString& bsPageRange,
                                            uint32_t nCount);
 
+class CPDF_RevisionProvider;
+
+// Resolve an FPDF_DOCUMENT to its lazy-built revision provider.
+// Returns nullptr if the document or its parser is invalid.
+const CPDF_RevisionProvider* GetRevisionProviderFromDocument(
+    FPDF_DOCUMENT document);
+
 #endif  // FPDFSDK_CPDFSDK_HELPERS_H_

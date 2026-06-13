@@ -53,7 +53,12 @@ bool CPDF_CryptoHandler::IsSignatureDictionary(
   if (!type_obj) {
     type_obj = dictionary->GetDirectObjectFor(pdfium::form_fields::kFT);
   }
-  return type_obj && type_obj->GetString() == pdfium::form_fields::kSig;
+  if (!type_obj) {
+    return false;
+  }
+
+  const ByteString type = type_obj->GetString();
+  return type == pdfium::form_fields::kSig || type == "DocTimeStamp";
 }
 
 DataVector<uint8_t> CPDF_CryptoHandler::EncryptContent(
