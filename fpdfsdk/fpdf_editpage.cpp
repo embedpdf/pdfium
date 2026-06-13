@@ -5,6 +5,7 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "public/fpdf_edit.h"
+#include "public/fpdfview.h"
 
 #include <algorithm>
 #include <memory>
@@ -18,6 +19,7 @@
 #include "core/fpdfapi/page/cpdf_form.h"
 #include "core/fpdfapi/page/cpdf_formobject.h"
 #include "core/fpdfapi/page/cpdf_imageobject.h"
+#include "core/fpdfapi/page/cpdf_occontext.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pageimagecache.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
@@ -1216,5 +1218,57 @@ FPDFFormObj_RemoveObject(FPDF_PAGEOBJECT form_object,
 
   // Caller takes ownership of the removed page object
   removed_object.release();
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveOptionalContentGroups(FPDF_DOCUMENT document) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc) {
+    return false;
+  }
+
+  // Visibility under the default (View) configuration: an object is "hidden"
+  // when an OFF optional-content group (or OCMD / VE expression) suppresses it.
+  auto oc = pdfium::MakeRetain<CPDF_OCContext>(pDoc, CPDF_OCContext::kView);
+
+  const int page_count = FPDF_GetPageCount(document);
+  for (int i = 0; i < page_count; ++i) {
+    // FPDF_LoadPage parses the page content, so the object list is populated.
+    FPDF_PAGE page = FPDF_LoadPage(document, i);
+    if (!page) {
+      continue;
+    }
+
+    CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
+    if (IsPageObject(pPage)) {
+      // Collect hidden objects first, then remove, so the list is not mutated
+      // mid-iteration.
+      std::vector<CPDF_PageObject*> hidden;
+      const size_t count = pPage->GetPageObjectCount();
+      for (size_t k = 0; k < count; ++k) {
+        CPDF_PageObject* obj = pPage->GetPageObjectByIndex(k);
+        if (obj && !oc->CheckPageObjectVisible(obj)) {
+          hidden.push_back(obj);
+        }
+      }
+      if (!hidden.empty()) {
+        for (CPDF_PageObject* obj : hidden) {
+          // Dropping the returned unique_ptr frees the removed object.
+          pPage->RemovePageObject(obj);
+        }
+        CPDF_PageContentGenerator generator(pPage);
+        generator.GenerateContent();
+      }
+    }
+
+    FPDF_ClosePage(page);
+  }
+
+  // With the governed content removed, drop the optional-content machinery.
+  RetainPtr<CPDF_Dictionary> root = pDoc->GetMutableRoot();
+  if (root) {
+    root->RemoveFor("OCProperties");
+  }
   return true;
 }

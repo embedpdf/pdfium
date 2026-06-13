@@ -552,6 +552,19 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDF_RemoveAllJavaScript(FPDF_DOCUMENT document);
 
 // Experimental EmbedPDF Extension API.
+// Remove content governed by hidden optional-content groups (OCGs / layers):
+// for each page, drop page objects not visible under the default (View)
+// configuration, regenerate the page content, then remove the catalog
+// /OCProperties. This excises hidden-layer content rather than merely deleting
+// /OCProperties (which would make that content visible).
+//
+//   document - handle to the document.
+//
+// Returns true on success, including when no optional content is present.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveOptionalContentGroups(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
 // Create a new destination array of the form [page /XYZ left top zoom].
 //
 //   page     - handle to the destination page.
