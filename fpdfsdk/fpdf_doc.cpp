@@ -774,3 +774,62 @@ EPDF_GetMetaKeyName(FPDF_DOCUMENT document,
   }
   return 0;
 }
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveXMPMetadata(FPDF_DOCUMENT document) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> root = pDoc->GetMutableRoot();
+  if (!root)
+    return false;
+
+  // /Metadata is the catalog-level XMP stream (ISO 32000 §14.3.2). It is stored
+  // separately from /Info, so clearing Info via EPDF_SetMetaText() does not
+  // touch it. Removing the key drops the XMP from the document.
+  root->RemoveFor("Metadata");
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveEmbeddedThumbnails(FPDF_DOCUMENT document) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc)
+    return false;
+
+  const int count = pDoc->GetPageCount();
+  for (int i = 0; i < count; ++i) {
+    RetainPtr<CPDF_Dictionary> page = pDoc->GetMutablePageDictionary(i);
+    if (page)
+      page->RemoveFor("Thumb");
+  }
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDF_RemoveAllJavaScript(FPDF_DOCUMENT document) {
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
+  if (!pDoc)
+    return false;
+
+  RetainPtr<CPDF_Dictionary> root = pDoc->GetMutableRoot();
+  if (!root)
+    return false;
+
+  // (1) Catalog /Names /JavaScript name tree (document-level scripts).
+  RetainPtr<CPDF_Dictionary> names = root->GetMutableDictFor("Names");
+  if (names)
+    names->RemoveFor("JavaScript");
+
+  // (2) /OpenAction, but only when it is a JavaScript action — a GoTo
+  // destination OpenAction is legitimate navigation and is left intact.
+  RetainPtr<const CPDF_Dictionary> open_action = root->GetDictFor("OpenAction");
+  if (open_action && open_action->GetNameFor("S") == "JavaScript")
+    root->RemoveFor("OpenAction");
+
+  // (3) Catalog-level /AA additional-actions (e.g. WillClose/WillPrint scripts).
+  root->RemoveFor("AA");
+
+  return true;
+}
