@@ -88,6 +88,14 @@ case "$TARGET" in
   linux-*)
     apply_patch_file "$SOURCE_DIR" "$PATCH_DIR/shared-library.patch"
     ;;
+  android-* | arm64-v8a | armeabi-v7a | x86 | x86_64)
+    apply_patch_file "$SOURCE_DIR" "$PATCH_DIR/shared-library.patch"
+    apply_patch_file "$SOURCE_DIR/build" "$PATCH_DIR/android/build.patch"
+    ;;
+  ios-*)
+    apply_patch_file "$SOURCE_DIR/third_party/libjpeg_turbo" "$PATCH_DIR/ios/libjpeg_turbo.patch"
+    apply_patch_file "$SOURCE_DIR/buildtools/third_party/libc++" "$PATCH_DIR/ios/libcxx_config_site.patch"
+    ;;
   *)
     echo "unknown target: $TARGET" >&2
     exit 1

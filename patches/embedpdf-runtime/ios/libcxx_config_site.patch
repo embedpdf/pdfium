@@ -1,0 +1,14 @@
+diff --git a/__config_site b/__config_site
+index 1234567..abcdefg 100644
+--- a/__config_site
++++ b/__config_site
+@@ -16,9 +16,9 @@
+ //    limit for PDBs (https://crbug.com/1327710#c5). To fix this, we set
+ //    _LIBCPP_ABI_NAMESPACE to a shorter value.
+-#define _LIBCPP_ABI_NAMESPACE __Cr
++#define _LIBCPP_ABI_NAMESPACE __1
+ 
+-#define _LIBCPP_ABI_VERSION 2
++#define _LIBCPP_ABI_VERSION 1
+ 
+ #define _LIBCPP_ABI_FORCE_ITANIUM 0

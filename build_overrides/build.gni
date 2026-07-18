@@ -50,8 +50,9 @@ if (use_system_xcode == "") {
                           [ target_os ],
                           "value")
     use_system_xcode = _result == 0
-  }
-  if (target_os == "ios") {
+  } else if (target_os == "ios") {
+    use_system_xcode = true
+  } else {
     use_system_xcode = true
   }
 }

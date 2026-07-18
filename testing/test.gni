@@ -11,6 +11,10 @@
 # Variable:
 #   use_raw_android_executable: Use executable() rather than android_apk().
 #   use_native_activity: Test implements ANativeActivity_onCreate().
+declare_args() {
+  ios_automatically_manage_certs = true
+}
+
 template("test") {
   if (is_android) {
     import("//build/config/android/config.gni")

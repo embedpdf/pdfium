@@ -1,0 +1,50 @@
+name: Sync upstream pdfium
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday at 6am UTC
+  workflow_dispatch: # Manual trigger from Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: android-ios-build
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/embedpdf/pdfium.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Check for new commits
+        id: check
+        run: |
+          UPSTREAM_HEAD=$(git rev-parse upstream/embedpdf/main)
+          if git merge-base --is-ancestor "$UPSTREAM_HEAD" HEAD; then
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
+          else
+            echo "up_to_date=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rebase on upstream
+        if: steps.check.outputs.up_to_date == 'false'
+        run: |
+          git rebase upstream/embedpdf/main || {
+            echo "::error::Rebase failed due to conflicts. Manual resolution required."
+            git rebase --abort
+            exit 1
+          }
+
+      - name: Push rebased changes
+        if: steps.check.outputs.up_to_date == 'false'
+        run: git push origin android-ios-build --force-with-lease

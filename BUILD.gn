@@ -300,53 +300,55 @@ group("pdfium_unittest_deps") {
   ]
 }
 
-test("pdfium_unittests") {
-  testonly = true
-  sources = [ "testing/unit_test_main.cpp" ]
-  deps = [
-    "core/fdrm:unittests",
-    "core/fpdfapi/edit:unittests",
-    "core/fpdfapi/font:unittests",
-    "core/fpdfapi/page:unittests",
-    "core/fpdfapi/parser:unittests",
-    "core/fpdfapi/render:unittests",
-    "core/fpdfdoc:unittests",
-    "core/fpdftext:unittests",
-    "core/fxcodec:unittests",
-    "core/fxcrt",
-    "core/fxcrt:unittests",
-    "core/fxge:unittests",
-    "fpdfsdk:unittests",
-    "testing:unit_test_support",
-    "testing/image_diff:unittests",
-    "//testing/gmock",
-    "//testing/gtest",
-  ]
-  configs += [ ":pdfium_core_config" ]
-  if (is_android) {
-    use_raw_android_executable = true
-  }
-  if (pdf_enable_v8) {
-    configs += [ "//v8:external_startup_data" ]
-    deps += [
-      "fxjs:unittests",
-      "//v8",
+if (!is_ios) {
+  test("pdfium_unittests") {
+    testonly = true
+    sources = [ "testing/unit_test_main.cpp" ]
+    deps = [
+      "core/fdrm:unittests",
+      "core/fpdfapi/edit:unittests",
+      "core/fpdfapi/font:unittests",
+      "core/fpdfapi/page:unittests",
+      "core/fpdfapi/parser:unittests",
+      "core/fpdfapi/render:unittests",
+      "core/fpdfdoc:unittests",
+      "core/fpdftext:unittests",
+      "core/fxcodec:unittests",
+      "core/fxcrt",
+      "core/fxcrt:unittests",
+      "core/fxge:unittests",
+      "fpdfsdk:unittests",
+      "testing:unit_test_support",
+      "testing/image_diff:unittests",
+      "//testing/gmock",
+      "//testing/gtest",
     ]
-    if (pdf_enable_xfa) {
+    configs += [ ":pdfium_core_config" ]
+    if (is_android) {
+      use_raw_android_executable = true
+    }
+    if (pdf_enable_v8) {
+      configs += [ "//v8:external_startup_data" ]
       deps += [
-        "core/fxcrt/css:unittests",
-        "fxbarcode:unittests",
-        "xfa/fde:unittests",
-        "xfa/fgas/crt:unittests",
-        "xfa/fgas/font:unittests",
-        "xfa/fgas/layout:unittests",
-        "xfa/fxfa:unittests",
-        "xfa/fxfa/formcalc:unittests",
-        "xfa/fxfa/parser:unittests",
+        "fxjs:unittests",
+        "//v8",
       ]
+      if (pdf_enable_xfa) {
+        deps += [
+          "core/fxcrt/css:unittests",
+          "fxbarcode:unittests",
+          "xfa/fde:unittests",
+          "xfa/fgas/crt:unittests",
+          "xfa/fgas/font:unittests",
+          "xfa/fgas/layout:unittests",
+          "xfa/fxfa:unittests",
+          "xfa/fxfa/formcalc:unittests",
+          "xfa/fxfa/parser:unittests",
+        ]
+      }
     }
   }
-}
+}  # !is_ios
 
 group("pdfium_embeddertest_deps") {
   testonly = true
@@ -365,49 +367,51 @@ group("pdfium_embeddertest_deps") {
   ]
 }
 
-test("pdfium_embeddertests") {
-  testonly = true
-  sources = [ "testing/embedder_test_main.cpp" ]
-  deps = [
-    ":pdfium_embeddertest_deps",
-    "core/fpdfapi/edit:embeddertests",
-    "core/fpdfapi/parser:embeddertests",
-    "core/fpdfapi/render:embeddertests",
-    "core/fxcodec:embeddertests",
-    "core/fxcrt",
-    "core/fxge:embeddertests",
-    "fpdfsdk:embeddertests",
-    "fpdfsdk/formfiller:embeddertests",
-    "fpdfsdk/pwl:embeddertests",
-    "testing/image_diff",
-    "//testing/gmock",
-    "//testing/gtest",
-  ]
-  include_dirs = [ "testing/gmock/include" ]
-  configs += [ ":pdfium_core_config" ]
-
-  if (is_android) {
-    ignore_all_data_deps = true
-    use_raw_android_executable = true
-  }
-
-  if (pdf_enable_v8) {
-    deps += [
-      "fxjs:embeddertests",
-      "//v8",
+if (!is_ios) {
+  test("pdfium_embeddertests") {
+    testonly = true
+    sources = [ "testing/embedder_test_main.cpp" ]
+    deps = [
+      ":pdfium_embeddertest_deps",
+      "core/fpdfapi/edit:embeddertests",
+      "core/fpdfapi/parser:embeddertests",
+      "core/fpdfapi/render:embeddertests",
+      "core/fxcodec:embeddertests",
+      "core/fxcrt",
+      "core/fxge:embeddertests",
+      "fpdfsdk:embeddertests",
+      "fpdfsdk/formfiller:embeddertests",
+      "fpdfsdk/pwl:embeddertests",
+      "testing/image_diff",
+      "//testing/gmock",
+      "//testing/gtest",
     ]
-    configs += [ "//v8:external_startup_data" ]
-  }
+    include_dirs = [ "testing/gmock/include" ]
+    configs += [ ":pdfium_core_config" ]
 
-  if (pdf_enable_xfa) {
-    deps += [
-      "fpdfsdk/fpdfxfa:embeddertests",
-      "xfa/fwl:embeddertests",
-      "xfa/fxfa/layout:embeddertests",
-      "xfa/fxfa/parser:embeddertests",
-    ]
+    if (is_android) {
+      ignore_all_data_deps = true
+      use_raw_android_executable = true
+    }
+
+    if (pdf_enable_v8) {
+      deps += [
+        "fxjs:embeddertests",
+        "//v8",
+      ]
+      configs += [ "//v8:external_startup_data" ]
+    }
+
+    if (pdf_enable_xfa) {
+      deps += [
+        "fpdfsdk/fpdfxfa:embeddertests",
+        "xfa/fwl:embeddertests",
+        "xfa/fxfa/layout:embeddertests",
+        "xfa/fxfa/parser:embeddertests",
+      ]
+    }
   }
-}
+}  # !is_ios
 
 executable("pdfium_diff") {
   visibility += [ "testing/tools:test_runner_py" ]
@@ -427,11 +431,16 @@ group("pdfium_all") {
   testonly = true
   deps = [
     ":pdfium_diff",
-    ":pdfium_embeddertests",
-    ":pdfium_unittests",
     "testing:pdfium_test",
     "testing/fuzzers",
   ]
+
+  if (!is_ios) {
+    deps += [
+      ":pdfium_embeddertests",
+      ":pdfium_unittests",
+    ]
+  }
 
   if (pdf_is_standalone) {
     deps += [ "testing/tools:test_runner_py" ]

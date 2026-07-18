@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 62210c2f6..053fbff6d 100644
+index fbdb13a4e..3b450b979 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -228,7 +228,7 @@ group("pdfium_public_headers") {
+@@ -225,10 +225,18 @@ group("pdfium_public_headers") {
    ]
  }
  
@@ -11,7 +11,18 @@ index 62210c2f6..053fbff6d 100644
    output_name = "pdfium"
    libs = []
    configs += [ ":pdfium_strict_config" ]
-@@ -263,6 +263,9 @@ component("pdfium") {
++  if (is_android) {
++    _configs = filter_exclude(configs, [
++      "//build/config/android:hide_all_but_jni_onload",
++      "//build/config/android:hide_all_but_jni",
++    ])
++    configs = []
++    configs = _configs
++  }
+   public_configs = [ ":pdfium_public_config" ]
+ 
+   deps = [
+@@ -263,6 +269,9 @@ component("pdfium") {
        "gdi32.lib",
        "user32.lib",
      ]

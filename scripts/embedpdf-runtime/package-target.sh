@@ -27,11 +27,11 @@ case "$TARGET" in
     LIB_SOURCE="$OUT/libpdfium.dylib"
     LIB_DEST="$STAGING/lib/libpdfium.dylib"
     ;;
-  linux-*)
+  linux-*|android-*|arm64-v8a|armeabi-v7a|x86_64|x86)
     LIB_SOURCE="$OUT/libpdfium.so"
     LIB_DEST="$STAGING/lib/libpdfium.so"
     ;;
-  linuxmusl-*|wasm32)
+  ios-*|linuxmusl-*|wasm32)
     LIB_SOURCE="$OUT/obj/libpdfium.a"
     LIB_DEST="$STAGING/lib/libpdfium.a"
     ;;

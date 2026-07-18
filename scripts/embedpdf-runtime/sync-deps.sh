@@ -31,6 +31,8 @@ solutions = [
     "managed": False,
     "custom_vars": {
       "checkout_configuration": "small",
+      $( [[ "$TARGET_OS_LIST" == *"android"* ]] && echo '"checkout_android": True,' )
+      $( [[ "$TARGET_OS_LIST" == *"ios"* ]] && echo '"checkout_ios": True,' )
     },
   },
 ]

@@ -1,0 +1,35 @@
+diff --git a/config/BUILDCONFIG.gn b/config/BUILDCONFIG.gn
+index b5dca4a..279e0ab 100644
+--- a/config/BUILDCONFIG.gn
++++ b/config/BUILDCONFIG.gn
+@@ -241,7 +241,7 @@ _default_toolchain = ""
+ 
+ if (target_os == "android") {
+   # Targeting android on Mac is best-effort and not guaranteed to work.
+-  assert(host_os == "linux", "Android builds are only supported on Linux.")
++  assert(host_os == "linux" || host_os == "mac", "Android builds are only supported on Linux or Mac.")
+   _default_toolchain = "//build/toolchain/android:android_clang_$target_cpu"
+ } else if (target_os == "chromeos" || target_os == "linux") {
+   # See comments in build/toolchain/cros/BUILD.gn about board compiles.
+diff --git a/config/android/config.gni b/config/android/config.gni
+index cc12ce7..392e125 100644
+--- a/config/android/config.gni
++++ b/config/android/config.gni
+@@ -69,7 +69,7 @@ if (is_android) {
+ 
+     # The default to use for android:minSdkVersion for targets that do
+     # not explicitly set it.
+-    default_min_sdk_version = 29
++    default_min_sdk_version = 21
+     if (is_cronet_build) {
+       # Cronet's min sdk version support policy is different from the rest of
+       # Chromium; Cronet explicitly supports older devices.
+@@ -131,7 +131,7 @@ if (is_android) {
+   }
+ 
+   # Our build system no longer supports legacy multidex.
+-  min_supported_sdk_version = 23
++  min_supported_sdk_version = 21
+ 
+   # ASAN requires O MR1.
+   # https://github.com/google/sanitizers/wiki/AddressSanitizerOnAndroid/01f8df1ac1a447a8475cdfcb03e8b13140042dbd#running-with-wrapsh-recommended

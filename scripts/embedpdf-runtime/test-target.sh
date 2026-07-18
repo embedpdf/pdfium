@@ -36,8 +36,39 @@ case "$TARGET" in
     GN_TARGET_CPU="arm64"
     EXTRA_ARGS=$'\narm_control_flow_integrity="none"'
     ;;
+  android-arm64 | arm64-v8a)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="arm64"
+    ;;
+  android-arm | armeabi-v7a)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="arm"
+    ;;
+  android-x64 | x86_64)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="x64"
+    ;;
+  android-x86 | x86)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="x86"
+    ;;
+  ios-arm64)
+    GN_TARGET_OS="ios"
+    GN_TARGET_CPU="arm64"
+    EXTRA_ARGS=$'\nios_enable_code_signing=false'
+    ;;
+  ios-simulator-arm64)
+    GN_TARGET_OS="ios"
+    GN_TARGET_CPU="arm64"
+    EXTRA_ARGS=$'\nios_enable_code_signing=false\nuse_ios_simulator=true'
+    ;;
+  ios-simulator-x64)
+    GN_TARGET_OS="ios"
+    GN_TARGET_CPU="x64"
+    EXTRA_ARGS=$'\nios_enable_code_signing=false\nuse_ios_simulator=true'
+    ;;
   *)
-    echo "test-target.sh only supports host-native targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64" >&2
+    echo "test-target.sh only supports host-native and cross-buildable targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64, android-*, ios-*" >&2
     exit 1
     ;;
 esac
@@ -47,11 +78,19 @@ PDF_RUNTIME_TARGET_OS_LIST="${PDF_RUNTIME_TARGET_OS_LIST:-$GN_TARGET_OS}" \
 
 "$SOURCE_DIR/scripts/embedpdf-runtime/apply-patches.sh" "$TARGET"
 
-if [[ "$TARGET" == linux-* ]]; then
+if [[ "$TARGET" == linux-* || "$TARGET" == android-* || "$TARGET" == arm64-v8a || "$TARGET" == armeabi-v7a || "$TARGET" == x86 || "$TARGET" == x86_64 ]]; then
   (
     cd "$SOURCE_DIR"
-    build/install-build-deps.sh --no-prompt
-    build/linux/sysroot_scripts/install-sysroot.py "--arch=$GN_TARGET_CPU"
+    if [[ "$TARGET" == android-* || "$TARGET" == arm64-v8a || "$TARGET" == armeabi-v7a || "$TARGET" == x86 || "$TARGET" == x86_64 ]]; then
+       # For android, we might need --android but it's often slow and interactive.
+       # Most runners have what's needed. Let's try without --android first but keep the base linux deps.
+       build/install-build-deps.sh --no-prompt --no-arm --no-chromeos-fonts
+    else
+       build/install-build-deps.sh --no-prompt
+    fi
+    if [[ "$GN_TARGET_OS" == "linux" ]]; then
+      build/linux/sysroot_scripts/install-sysroot.py "--arch=$GN_TARGET_CPU"
+    fi
   )
 fi
 
@@ -77,6 +116,14 @@ target_cpu="$GN_TARGET_CPU"${EXTRA_ARGS:-}
 EOF
 
 targets=()
+
+# iOS builds skip tests entirely (test targets are excluded from the iOS build).
+if [[ "$GN_TARGET_OS" == "ios" ]]; then
+  echo "=== tests are not supported on iOS, skipping ==="
+  echo "$RESULTS"
+  exit 0
+fi
+
 case "$TEST_SUITE" in
   all)
     targets+=(pdfium_unittests pdfium_embeddertests)
@@ -112,6 +159,12 @@ run_gtest() {
     # Do not use this for arguments containing spaces.
     extra_gtest_args=($PDFIUM_GTEST_ARGS)
     cmd+=("${extra_gtest_args[@]}")
+  fi
+
+  if [[ "$GN_TARGET_OS" == "android" || "$GN_TARGET_OS" == "ios" ]]; then
+    echo "=== building $binary (execution skipped on $GN_TARGET_OS) ==="
+    # We already built it with ninja, so we just exit here.
+    return 0
   fi
 
   echo "=== running $binary ==="

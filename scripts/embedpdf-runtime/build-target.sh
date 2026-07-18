@@ -57,6 +57,44 @@ case "$TARGET" in
     GN_TARGET_CPU="arm64"
     PDF_IS_COMPLETE_LIB=false
     ;;
+  android-arm64 | arm64-v8a)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="arm64"
+    PDF_IS_COMPLETE_LIB=false
+    ;;
+  android-arm | armeabi-v7a)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="arm"
+    PDF_IS_COMPLETE_LIB=false
+    ;;
+  android-x64 | x86_64)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="x64"
+    PDF_IS_COMPLETE_LIB=false
+    ;;
+  android-x86 | x86)
+    GN_TARGET_OS="android"
+    GN_TARGET_CPU="x86"
+    PDF_IS_COMPLETE_LIB=false
+    ;;
+  ios-arm64)
+    GN_TARGET_OS="ios"
+    GN_TARGET_CPU="arm64"
+    PDF_IS_COMPLETE_LIB=true
+    EXTRA_ARGS=$'\nios_enable_code_signing=false\ntarget_environment="device"'
+    ;;
+  ios-simulator-arm64)
+    GN_TARGET_OS="ios"
+    GN_TARGET_CPU="arm64"
+    PDF_IS_COMPLETE_LIB=true
+    EXTRA_ARGS=$'\nios_enable_code_signing=false\nuse_ios_simulator=true\ntarget_environment="simulator"'
+    ;;
+  ios-simulator-x64)
+    GN_TARGET_OS="ios"
+    GN_TARGET_CPU="x64"
+    PDF_IS_COMPLETE_LIB=true
+    EXTRA_ARGS=$'\nios_enable_code_signing=false\nuse_ios_simulator=true\ntarget_environment="simulator"'
+    ;;
   *)
     echo "unknown target: $TARGET" >&2
     exit 1
@@ -68,12 +106,22 @@ PDF_RUNTIME_TARGET_OS_LIST="${PDF_RUNTIME_TARGET_OS_LIST:-$GN_TARGET_OS}" \
 
 "$SOURCE_DIR/scripts/embedpdf-runtime/apply-patches.sh" "$TARGET"
 
-if [[ "$TARGET" == linux-* ]]; then
-  (
-    cd "$SOURCE_DIR"
-    build/install-build-deps.sh --no-prompt
-    build/linux/sysroot_scripts/install-sysroot.py "--arch=$GN_TARGET_CPU"
-  )
+if [[ "$(uname)" == "Linux" ]]; then
+  if [[ "$TARGET" == linux-* || "$TARGET" == android-* || "$TARGET" == arm64-v8a || "$TARGET" == armeabi-v7a || "$TARGET" == x86 || "$TARGET" == x86_64 ]]; then
+    (
+      cd "$SOURCE_DIR"
+      if [[ "$TARGET" == android-* || "$TARGET" == arm64-v8a || "$TARGET" == armeabi-v7a || "$TARGET" == x86 || "$TARGET" == x86_64 ]]; then
+         # For android, we might need --android but it's often slow and interactive.
+         # Most runners have what's needed. Let's try without --android first but keep the base linux deps.
+         build/install-build-deps.sh --no-prompt --no-arm --no-chromeos-fonts
+      else
+         build/install-build-deps.sh --no-prompt
+      fi
+      if [[ "$GN_TARGET_OS" == "linux" ]]; then
+        build/linux/sysroot_scripts/install-sysroot.py "--arch=$GN_TARGET_CPU"
+      fi
+    )
+  fi
 fi
 
 OUT="$SOURCE_DIR/out/embedpdf-runtime/$TARGET"
