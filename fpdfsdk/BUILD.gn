@@ -19,6 +19,8 @@ source_set("fpdfsdk") {
     "epdf_flatten.cpp",
     "epdf_layer.cpp",
     "epdf_outline.cpp",
+    # EmbedPDF: the catalog's /Names /Pages and /Templates name trees.
+    "epdf_named_pages.cpp",
     # EmbedPDF: generic namespace-scoped document/page /PieceInfo metadata.
     "epdf_pieceinfo.cpp",
     "epdf_page_content_helpers.cpp",
@@ -152,6 +154,8 @@ pdfium_embeddertest_source_set("embeddertests") {
     "epdf_action_embeddertest.cpp",
     # EmbedPDF: covers the EPDFForm_* session-free form APIs.
     "epdf_form_embeddertest.cpp",
+    # EmbedPDF: covers the /Names /Pages and /Templates name-tree APIs.
+    "epdf_named_pages_embeddertest.cpp",
     # EmbedPDF: covers generic document/page /PieceInfo metadata APIs.
     "epdf_pieceinfo_embeddertest.cpp",
     "fpdf_annot_embeddertest.cpp",

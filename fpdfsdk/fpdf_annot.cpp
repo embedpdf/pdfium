@@ -367,127 +367,6 @@ static_assert(static_cast<int>(CPDF_Annot::VerticalAlignment::kBottom) ==
                   FPDF_VERTICAL_ALIGNMENT_BOTTOM,
               "CPDF_Annot::VerticalAlignment::kBottom mismatch");
 
-// These checks ensure the consistency of icon values across core/ and public.
-static_assert(static_cast<int>(CPDF_Annot::Icon::kUnknown) ==
-                  FPDF_ANNOT_NAME_UNKNOWN,
-              "Icon::kUnknown mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Comment) ==
-                  FPDF_ANNOT_NAME_Text_Comment,
-              "Icon::kText_Comment mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Key) ==
-                  FPDF_ANNOT_NAME_Text_Key,
-              "Icon::kText_Key mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Note) ==
-                  FPDF_ANNOT_NAME_Text_Note,
-              "Icon::kText_Note mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Help) ==
-                  FPDF_ANNOT_NAME_Text_Help,
-              "Icon::kText_Help mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_NewParagraph) ==
-                  FPDF_ANNOT_NAME_Text_NewParagraph,
-              "Icon::kText_NewParagraph mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Paragraph) ==
-                  FPDF_ANNOT_NAME_Text_Paragraph,
-              "Icon::kText_Paragraph mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Insert) ==
-                  FPDF_ANNOT_NAME_Text_Insert,
-              "Icon::kText_Insert mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_Graph) ==
-                  FPDF_ANNOT_NAME_File_Graph,
-              "Icon::kFile_Graph mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_PushPin) ==
-                  FPDF_ANNOT_NAME_File_PushPin,
-              "Icon::kFile_PushPin mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_Paperclip) ==
-                  FPDF_ANNOT_NAME_File_Paperclip,
-              "Icon::kFile_Paperclip mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_Tag) ==
-                  FPDF_ANNOT_NAME_File_Tag,
-              "Icon::kFile_Tag mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kSound_Speaker) ==
-                  FPDF_ANNOT_NAME_Sound_Speaker,
-              "Icon::kSound_Speaker mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kSound_Mic) ==
-                  FPDF_ANNOT_NAME_Sound_Mic,
-              "Icon::kSound_Mic mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Approved) ==
-                  FPDF_ANNOT_NAME_Stamp_Approved,
-              "Icon::kStamp_Approved mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Experimental) ==
-                  FPDF_ANNOT_NAME_Stamp_Experimental,
-              "Icon::kStamp_Experimental mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_NotApproved) ==
-                  FPDF_ANNOT_NAME_Stamp_NotApproved,
-              "Icon::kStamp_NotApproved mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_AsIs) ==
-                  FPDF_ANNOT_NAME_Stamp_AsIs,
-              "Icon::kStamp_AsIs mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Expired) ==
-                  FPDF_ANNOT_NAME_Stamp_Expired,
-              "Icon::kStamp_Expired mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_NotForPublicRelease) ==
-                  FPDF_ANNOT_NAME_Stamp_NotForPublicRelease,
-              "Icon::kStamp_NotForPublicRelease mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Confidential) ==
-                  FPDF_ANNOT_NAME_Stamp_Confidential,
-              "Icon::kStamp_Confidential mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Final) ==
-                  FPDF_ANNOT_NAME_Stamp_Final,
-              "Icon::kStamp_Final mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Sold) ==
-                  FPDF_ANNOT_NAME_Stamp_Sold,
-              "Icon::kStamp_Sold mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Departmental) ==
-                  FPDF_ANNOT_NAME_Stamp_Departmental,
-              "Icon::kStamp_Departmental mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_ForComment) ==
-                  FPDF_ANNOT_NAME_Stamp_ForComment,
-              "Icon::kStamp_ForComment mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_TopSecret) ==
-                  FPDF_ANNOT_NAME_Stamp_TopSecret,
-              "Icon::kStamp_TopSecret mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Draft) ==
-                  FPDF_ANNOT_NAME_Stamp_Draft,
-              "Icon::kStamp_Draft mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_ForPublicRelease) ==
-                  FPDF_ANNOT_NAME_Stamp_ForPublicRelease,
-              "Icon::kStamp_ForPublicRelease mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Completed) ==
-                  FPDF_ANNOT_NAME_Stamp_Completed,
-              "Icon::kStamp_Completed mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Void) ==
-                  FPDF_ANNOT_NAME_Stamp_Void,
-              "Icon::kStamp_Void mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_PreliminaryResults) ==
-                  FPDF_ANNOT_NAME_Stamp_PreliminaryResults,
-              "Icon::kStamp_PreliminaryResults mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_InformationOnly) ==
-                  FPDF_ANNOT_NAME_Stamp_InformationOnly,
-              "Icon::kStamp_InformationOnly mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Rejected) ==
-                  FPDF_ANNOT_NAME_Stamp_Rejected,
-              "Icon::kStamp_Rejected mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Witness) ==
-                  FPDF_ANNOT_NAME_Stamp_Witness,
-              "Icon::kStamp_Witness mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_InitialHere) ==
-                  FPDF_ANNOT_NAME_Stamp_InitialHere,
-              "Icon::kStamp_InitialHere mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_SignHere) ==
-                  FPDF_ANNOT_NAME_Stamp_SignHere,
-              "Icon::kStamp_SignHere mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Accepted) ==
-                  FPDF_ANNOT_NAME_Stamp_Accepted,
-              "Icon::kStamp_Accepted mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Custom) ==
-                  FPDF_ANNOT_NAME_Stamp_Custom,
-              "Icon::kStamp_Custom mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Image) ==
-                  FPDF_ANNOT_NAME_Stamp_Image,
-              "Icon::kStamp_Image mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kLast) == FPDF_ANNOT_NAME_LAST,
-              "Icon::kLast mismatch");
-
 // These checks ensure the consistency of reply type values across core/ and
 // public.
 static_assert(static_cast<int>(CPDF_Annot::ReplyType::kUnknown) ==
@@ -549,30 +428,6 @@ class AnnotAppearanceExporter final : public CPDF_PageOrganizer {
 bool IsNameSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
   return subtype == FPDF_ANNOT_TEXT || subtype == FPDF_ANNOT_FILEATTACHMENT ||
          subtype == FPDF_ANNOT_SOUND || subtype == FPDF_ANNOT_STAMP;
-}
-
-// Checks if a specific name value is valid for a given annotation subtype.
-bool IsNameValidForSubtype(FPDF_ANNOT_NAME name,
-                           FPDF_ANNOTATION_SUBTYPE subtype) {
-  if (name <= FPDF_ANNOT_NAME_UNKNOWN || name > FPDF_ANNOT_NAME_LAST) {
-    return false;
-  }
-  switch (subtype) {
-    case FPDF_ANNOT_TEXT:
-      return name >= FPDF_ANNOT_NAME_Text_Comment &&
-             name <= FPDF_ANNOT_NAME_Text_Insert;
-    case FPDF_ANNOT_FILEATTACHMENT:
-      return name >= FPDF_ANNOT_NAME_File_Graph &&
-             name <= FPDF_ANNOT_NAME_File_Tag;
-    case FPDF_ANNOT_SOUND:
-      return name >= FPDF_ANNOT_NAME_Sound_Speaker &&
-             name <= FPDF_ANNOT_NAME_Sound_Mic;
-    case FPDF_ANNOT_STAMP:
-      return name >= FPDF_ANNOT_NAME_Stamp_Approved &&
-             name <= FPDF_ANNOT_NAME_Stamp_Image;
-    default:
-      return false;
-  }
 }
 
 bool HasAPStream(const CPDF_Dictionary* pAnnotDict) {
@@ -4139,57 +3994,37 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc,
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetName(FPDF_ANNOTATION annot,
-                                                      FPDF_ANNOT_NAME name) {
+                                                      FPDF_BYTESTRING name) {
   RetainPtr<CPDF_Dictionary> dict =
       GetMutableAnnotDictFromFPDFAnnotation(annot);
-  if (!dict) {
+  if (!dict || !name || !*name) {
     return false;
   }
-
-  const FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
-  if (!IsNameSubtype(subtype)) {
+  if (!IsNameSubtype(FPDFAnnot_GetSubtype(annot))) {
     return false;
   }
-
-  if (name == FPDF_ANNOT_NAME_UNKNOWN) {
-    dict->RemoveFor("Name");
-    dict->RemoveFor(pdfium::annotation::kAP);
-    return true;
-  }
-
-  if (!IsNameValidForSubtype(name, subtype)) {
-    return false;
-  }
-
-  auto internal_name = static_cast<CPDF_Annot::Icon>(name);
-  ByteString name_str = CPDF_Annot::IconToString(internal_name);
-  if (name_str.IsEmpty()) {
-    return false;
-  }
-
-  dict->SetNewFor<CPDF_Name>("Name", name_str);
-
+  // A name object, not a string: /Name /#23LBG... is what Acrobat reads
+  // back as "#LBG...". Appearance streams are deliberately left alone —
+  // stamps own theirs, icon subtypes are rebaked by the caller. Any name
+  // is accepted: the predefined sets are a reader obligation (ISO 32000-2
+  // tables 175/184/187/188 all allow additional names).
+  dict->SetNewFor<CPDF_Name>("Name", ByteString(name));
   return true;
 }
 
-FPDF_EXPORT FPDF_ANNOT_NAME FPDF_CALLCONV
-EPDFAnnot_GetName(FPDF_ANNOTATION annot) {
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetName(FPDF_ANNOTATION annot, char* buffer, unsigned long buflen) {
   const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
   if (!dict) {
-    return FPDF_ANNOT_NAME_UNKNOWN;
+    return 0;
   }
-
-  if (!IsNameSubtype(FPDFAnnot_GetSubtype(annot))) {
-    return FPDF_ANNOT_NAME_UNKNOWN;
-  }
-
-  ByteString name_str = dict->GetNameFor("Name");
+  const ByteString name_str = dict->GetNameFor("Name");
   if (name_str.IsEmpty()) {
-    return FPDF_ANNOT_NAME_UNKNOWN;
+    return 0;
   }
-
-  CPDF_Annot::Icon internal_name = CPDF_Annot::StringToIcon(name_str);
-  return static_cast<FPDF_ANNOT_NAME>(internal_name);
+  // SAFETY: required from caller.
+  return NulTerminateMaybeCopyAndReturnLength(
+      name_str, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV

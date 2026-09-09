@@ -6,6 +6,7 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
+#include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -384,3 +385,50 @@ TEST(CPDFNameTreeTest, DeleteFromKids) {
   EXPECT_FALSE(name_tree->LookupValueAndName(0, &csName));
   EXPECT_FALSE(name_tree->DeleteValueAndName(0));
 }
+
+// EmbedPDF: a pair whose value is a reference to a missing object is still
+// a pair — indexed lookups must report its key (with a null value), keep
+// later indices aligned with GetCount(), and be able to delete it.
+TEST(CPDFNameTreeTest, DanglingValueKeepsIndexAlignment) {
+  auto pRootDict = pdfium::MakeRetain<CPDF_Dictionary>();
+  FillNameTreeDict(pRootDict.Get());
+  std::unique_ptr<CPDF_NameTree> name_tree =
+      CPDF_NameTree::CreateForTesting(pRootDict.Get());
+  ASSERT_EQ(5u, name_tree->GetCount());
+
+  // Replace "2.txt"'s value (index 1) with a reference nothing can resolve.
+  RetainPtr<CPDF_Dictionary> pKid1 =
+      pRootDict->GetMutableArrayFor("Kids")->GetMutableDictAt(0);
+  RetainPtr<CPDF_Dictionary> pGrandKid2 =
+      pKid1->GetMutableArrayFor("Kids")->GetMutableDictAt(0);
+  RetainPtr<CPDF_Dictionary> pGreatGrandKid4 =
+      pGrandKid2->GetMutableArrayFor("Kids")->GetMutableDictAt(0);
+  RetainPtr<CPDF_Array> pNames = pGreatGrandKid4->GetMutableArrayFor("Names");
+  ASSERT_EQ(4u, pNames->size());
+  pNames->SetNewAt<CPDF_Reference>(3, nullptr, 424242);
+
+  EXPECT_EQ(5u, name_tree->GetCount());
+  WideString csName;
+  EXPECT_TRUE(name_tree->LookupValueAndName(0, &csName));
+  EXPECT_EQ(L"1.txt", csName);
+  // The dangling pair: key reported, value null.
+  EXPECT_FALSE(name_tree->LookupValueAndName(1, &csName));
+  EXPECT_EQ(L"2.txt", csName);
+  // The pairs after it stay at their indices.
+  RetainPtr<CPDF_Object> value = name_tree->LookupValueAndName(2, &csName);
+  ASSERT_TRUE(value);
+  EXPECT_EQ(L"3.txt", csName);
+  EXPECT_EQ(333, value->GetInteger());
+  value = name_tree->LookupValueAndName(4, &csName);
+  ASSERT_TRUE(value);
+  EXPECT_EQ(L"9.txt", csName);
+  EXPECT_EQ(999, value->GetInteger());
+
+  // And it can be deleted by index.
+  EXPECT_TRUE(name_tree->DeleteValueAndName(1));
+  EXPECT_EQ(4u, name_tree->GetCount());
+  value = name_tree->LookupValueAndName(1, &csName);
+  ASSERT_TRUE(value);
+  EXPECT_EQ(L"3.txt", csName);
+}
+

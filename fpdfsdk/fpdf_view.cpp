@@ -68,6 +68,7 @@
 #include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/cpdfsdk_renderpage.h"
 #include "fxjs/ijs_runtime.h"
+#include "public/epdf_named_pages.h"
 #include "public/fpdf_formfill.h"
 
 #ifdef PDF_ENABLE_V8
@@ -840,6 +841,12 @@ EPDFDoc_DeletePageByObjectNumber(FPDF_DOCUMENT document, unsigned int obj_num) {
   if (page_index < 0) {
     return false;
   }
+
+  // A page that leaves the tree must not leave /Names /Pages registrations
+  // pointing at it (they would resolve to the null object after
+  // SetPageToNullObject). Done here, before the delete, so the references
+  // still resolve while we search, and so every caller gets the invariant.
+  EPDFDoc_RemoveNamedPagesForPage(document, obj_num);
 
   const uint32_t deleted_obj_num = doc->DeletePage(page_index);
   if (deleted_obj_num == 0) {
