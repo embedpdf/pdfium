@@ -178,59 +178,6 @@ typedef enum FPDF_VERTICAL_ALIGNMENT {
   FPDF_VERTICAL_ALIGNMENT_BOTTOM = 2
 } FPDF_VERTICAL_ALIGNMENT;
 
-typedef enum FPDF_ANNOT_NAME {
-  FPDF_ANNOT_NAME_UNKNOWN = -1,
-  /* Text */
-  FPDF_ANNOT_NAME_Text_Comment = 0,
-  FPDF_ANNOT_NAME_Text_Key,
-  FPDF_ANNOT_NAME_Text_Note,
-  FPDF_ANNOT_NAME_Text_Help,
-  FPDF_ANNOT_NAME_Text_NewParagraph,
-  FPDF_ANNOT_NAME_Text_Paragraph,
-  FPDF_ANNOT_NAME_Text_Insert,
-
-  /* FileAttachment */
-  FPDF_ANNOT_NAME_File_Graph,
-  FPDF_ANNOT_NAME_File_PushPin,
-  FPDF_ANNOT_NAME_File_Paperclip,
-  FPDF_ANNOT_NAME_File_Tag,
-
-  /* Sound */
-  FPDF_ANNOT_NAME_Sound_Speaker,
-  FPDF_ANNOT_NAME_Sound_Mic,
-
-  /* Stamp (ISO 32000 standard) */
-  FPDF_ANNOT_NAME_Stamp_Approved,
-  FPDF_ANNOT_NAME_Stamp_Experimental,
-  FPDF_ANNOT_NAME_Stamp_NotApproved,
-  FPDF_ANNOT_NAME_Stamp_AsIs,
-  FPDF_ANNOT_NAME_Stamp_Expired,
-  FPDF_ANNOT_NAME_Stamp_NotForPublicRelease,
-  FPDF_ANNOT_NAME_Stamp_Confidential,
-  FPDF_ANNOT_NAME_Stamp_Final,
-  FPDF_ANNOT_NAME_Stamp_Sold,
-  FPDF_ANNOT_NAME_Stamp_Departmental,
-  FPDF_ANNOT_NAME_Stamp_ForComment,
-  FPDF_ANNOT_NAME_Stamp_TopSecret,
-  FPDF_ANNOT_NAME_Stamp_Draft,
-  FPDF_ANNOT_NAME_Stamp_ForPublicRelease,
-
-  /* Stamp (extended – Adobe SB/SH and custom) */
-  FPDF_ANNOT_NAME_Stamp_Completed,
-  FPDF_ANNOT_NAME_Stamp_Void,
-  FPDF_ANNOT_NAME_Stamp_PreliminaryResults,
-  FPDF_ANNOT_NAME_Stamp_InformationOnly,
-  FPDF_ANNOT_NAME_Stamp_Rejected,
-  FPDF_ANNOT_NAME_Stamp_Witness,
-  FPDF_ANNOT_NAME_Stamp_InitialHere,
-  FPDF_ANNOT_NAME_Stamp_SignHere,
-  FPDF_ANNOT_NAME_Stamp_Accepted,
-  FPDF_ANNOT_NAME_Stamp_Custom,
-  FPDF_ANNOT_NAME_Stamp_Image,
-
-  FPDF_ANNOT_NAME_LAST = FPDF_ANNOT_NAME_Stamp_Image
-} FPDF_ANNOT_NAME;
-
 typedef enum EPDF_STAMP_FIT {
   EPDF_STAMP_FIT_CONTAIN = 0,  // preserve aspect, fully visible
   EPDF_STAMP_FIT_COVER = 1,    // preserve aspect, fill box, might crop
@@ -1804,24 +1751,43 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc,
                                                             int index);
 
 // Experimental EmbedPDF Extension API.
-// Set the /Name entry of an annotation (icon name for text/file/sound,
-// stamp type identifier for stamp annotations).
+// Set the /Name entry of an annotation: the icon name of a text, file
+// attachment, or sound annotation, or a stamp's identifier (ISO 32000-2
+// tables 175, 184, 187, 188). Any name is accepted — the predefined sets
+// are a READER's rendering obligation, not a writer's validation — so
+// custom stamp identifiers such as Acrobat's "#LBGiYhk8V_oAfmqAPENiwD"
+// work as well as "Approved". Written as a name object (the serializer
+// applies #xx escaping; callers pass raw text). Never touches /AP: a
+// stamp keeps the appearance it was given, and icon subtypes are rebaked
+// by the caller's appearance regeneration.
 //
-//   annot    - handle to an annotation.
-//   name     - the name to be set.
+// To remove /Name (fall back to the subtype's default icon), use
+// EPDFAnnot_RemoveKey(annot, "Name").
 //
-// Returns true on success.
+//   annot    - handle to an annotation of a subtype that carries /Name
+//              (text, file attachment, sound, stamp).
+//   name     - UTF-8 zero-terminated name text without the leading "/";
+//              must be non-empty.
+//
+// Returns true on success; false for other subtypes, an empty name, or a
+// null handle.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetName(FPDF_ANNOTATION annot,
-                                                      FPDF_ANNOT_NAME name);
+                                                      FPDF_BYTESTRING name);
 
 // Experimental EmbedPDF Extension API.
-// Get the /Name entry of an annotation.
+// Get the /Name entry of an annotation as text, whatever its value.
 //
 //   annot    - handle to an annotation.
+//   buffer   - receives the name as UTF-8 with a NUL terminator; may be
+//              NULL to query the required size.
+//   buflen   - size of |buffer| in bytes.
 //
-// Returns the name.
-FPDF_EXPORT FPDF_ANNOT_NAME FPDF_CALLCONV
-EPDFAnnot_GetName(FPDF_ANNOTATION annot);
+// Returns the number of bytes needed including the terminator (the name is
+// copied only when |buflen| is large enough), or 0 when the annotation has
+// no /Name or on error.
+FPDF_EXPORT unsigned long FPDF_CALLCONV EPDFAnnot_GetName(FPDF_ANNOTATION annot,
+                                                          char* buffer,
+                                                          unsigned long buflen);
 
 // Experimental EmbedPDF Extension API.
 // Resize the normal appearance (/AP/N) of a Stamp to match the annotation's
@@ -1950,35 +1916,6 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFAnnot_SetAppearanceFromPage(FPDF_ANNOTATION annot,
                                 FPDF_DOCUMENT src_doc,
                                 int page_index);
-
-// Experimental EmbedPDF Extension API.
-// Export an annotation's normal appearance (AP/N) as a standalone single-page
-// PDF document. The new page is sized to the appearance stream's BBox, or the
-// annotation rect when the BBox is unavailable.
-//
-//   annot - handle to an annotation with an appearance stream.
-//
-// Returns a new document containing the exported appearance, or NULL on error.
-// The caller owns the returned document and must close it with
-// FPDF_CloseDocument().
-FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
-EPDFAnnot_ExportAppearanceAsDocument(FPDF_ANNOTATION annot);
-
-// Experimental EmbedPDF Extension API.
-// Export multiple annotations' normal appearances (AP/N) as a standalone
-// single-page PDF document. The annotations must all belong to the same page.
-// The new page is sized to the union of all annotation rects, and each
-// appearance is placed at the correct relative position within the page.
-//
-//   annots      - array of annotation handles with appearance streams.
-//   annot_count - number of annotations in the array. Must be > 0.
-//
-// Returns a new document containing the combined appearances, or NULL on error.
-// The caller owns the returned document and must close it with
-// FPDF_CloseDocument().
-FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
-EPDFAnnot_ExportMultipleAppearancesAsDocument(FPDF_ANNOTATION* annots,
-                                              int annot_count);
 
 // Experimental EmbedPDF Extension API.
 // Get the annotation rectangle with normalization applied.

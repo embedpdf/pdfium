@@ -1,0 +1,90 @@
+{{header}}
+{{object 1 0}} <<
+  /Type /Catalog
+  /Pages 2 0 R
+  /Names 10 0 R
+>>
+endobj
+{{object 2 0}} <<
+  /Type /Pages
+  /Count 3
+  /Kids [
+    3 0 R
+    4 0 R
+    5 0 R
+  ]
+>>
+endobj
+% Page number 0.
+{{object 3 0}} <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% Page number 1.
+{{object 4 0}} <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% Page number 2.
+{{object 5 0}} <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% A template page: outside the page tree, no /Parent (ISO 32000-2 12.7.7).
+{{object 6 0}} <<
+  /Type /Template
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% The catalog's name dictionary.
+{{object 10 0}} <<
+  /Pages 11 0 R
+  /Templates 20 0 R
+>>
+endobj
+% Root of the /Pages name tree: two leaf kids, keys sorted across them.
+{{object 11 0}} <<
+  /Kids [
+    12 0 R
+    13 0 R
+  ]
+>>
+endobj
+% Left leaf.
+{{object 12 0}} <<
+  /Limits [(#alpha=Alpha) (Approved=Goedgekeurd)]
+  /Names [
+    (#alpha=Alpha) 3 0 R
+    (Approved=Goedgekeurd) 4 0 R
+  ]
+>>
+endobj
+% Right leaf: a dangling value (object 99 does not exist) and a UTF-16BE
+% key with a byte order mark, "Stämpel=Stämpel", the way Acrobat writes
+% non-ASCII keys.
+{{object 13 0}} <<
+  /Limits [(Draft=Concept) <FEFF0053007400E4006D00700065006C003D0053007400E4006D00700065006C>]
+  /Names [
+    (Draft=Concept) 5 0 R
+    (Ghost) 99 0 R
+    <FEFF0053007400E4006D00700065006C003D0053007400E4006D00700065006C> 4 0 R
+  ]
+>>
+endobj
+% The /Templates name tree: a flat root.
+{{object 20 0}} <<
+  /Names [
+    (Tpl=Hidden) 6 0 R
+  ]
+>>
+endobj
+{{xref}}
+{{trailer}}
+{{startxref}}
+%%EOF

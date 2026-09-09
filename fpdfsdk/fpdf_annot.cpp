@@ -54,6 +54,7 @@
 #include "core/fxge/cfx_fontregistry.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
+#include "fpdfsdk/epdf_appearance_exporter.h"
 #include "fpdfsdk/cpdfsdk_interactiveform.h"
 
 namespace {
@@ -367,127 +368,6 @@ static_assert(static_cast<int>(CPDF_Annot::VerticalAlignment::kBottom) ==
                   FPDF_VERTICAL_ALIGNMENT_BOTTOM,
               "CPDF_Annot::VerticalAlignment::kBottom mismatch");
 
-// These checks ensure the consistency of icon values across core/ and public.
-static_assert(static_cast<int>(CPDF_Annot::Icon::kUnknown) ==
-                  FPDF_ANNOT_NAME_UNKNOWN,
-              "Icon::kUnknown mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Comment) ==
-                  FPDF_ANNOT_NAME_Text_Comment,
-              "Icon::kText_Comment mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Key) ==
-                  FPDF_ANNOT_NAME_Text_Key,
-              "Icon::kText_Key mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Note) ==
-                  FPDF_ANNOT_NAME_Text_Note,
-              "Icon::kText_Note mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Help) ==
-                  FPDF_ANNOT_NAME_Text_Help,
-              "Icon::kText_Help mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_NewParagraph) ==
-                  FPDF_ANNOT_NAME_Text_NewParagraph,
-              "Icon::kText_NewParagraph mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Paragraph) ==
-                  FPDF_ANNOT_NAME_Text_Paragraph,
-              "Icon::kText_Paragraph mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kText_Insert) ==
-                  FPDF_ANNOT_NAME_Text_Insert,
-              "Icon::kText_Insert mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_Graph) ==
-                  FPDF_ANNOT_NAME_File_Graph,
-              "Icon::kFile_Graph mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_PushPin) ==
-                  FPDF_ANNOT_NAME_File_PushPin,
-              "Icon::kFile_PushPin mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_Paperclip) ==
-                  FPDF_ANNOT_NAME_File_Paperclip,
-              "Icon::kFile_Paperclip mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kFile_Tag) ==
-                  FPDF_ANNOT_NAME_File_Tag,
-              "Icon::kFile_Tag mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kSound_Speaker) ==
-                  FPDF_ANNOT_NAME_Sound_Speaker,
-              "Icon::kSound_Speaker mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kSound_Mic) ==
-                  FPDF_ANNOT_NAME_Sound_Mic,
-              "Icon::kSound_Mic mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Approved) ==
-                  FPDF_ANNOT_NAME_Stamp_Approved,
-              "Icon::kStamp_Approved mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Experimental) ==
-                  FPDF_ANNOT_NAME_Stamp_Experimental,
-              "Icon::kStamp_Experimental mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_NotApproved) ==
-                  FPDF_ANNOT_NAME_Stamp_NotApproved,
-              "Icon::kStamp_NotApproved mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_AsIs) ==
-                  FPDF_ANNOT_NAME_Stamp_AsIs,
-              "Icon::kStamp_AsIs mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Expired) ==
-                  FPDF_ANNOT_NAME_Stamp_Expired,
-              "Icon::kStamp_Expired mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_NotForPublicRelease) ==
-                  FPDF_ANNOT_NAME_Stamp_NotForPublicRelease,
-              "Icon::kStamp_NotForPublicRelease mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Confidential) ==
-                  FPDF_ANNOT_NAME_Stamp_Confidential,
-              "Icon::kStamp_Confidential mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Final) ==
-                  FPDF_ANNOT_NAME_Stamp_Final,
-              "Icon::kStamp_Final mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Sold) ==
-                  FPDF_ANNOT_NAME_Stamp_Sold,
-              "Icon::kStamp_Sold mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Departmental) ==
-                  FPDF_ANNOT_NAME_Stamp_Departmental,
-              "Icon::kStamp_Departmental mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_ForComment) ==
-                  FPDF_ANNOT_NAME_Stamp_ForComment,
-              "Icon::kStamp_ForComment mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_TopSecret) ==
-                  FPDF_ANNOT_NAME_Stamp_TopSecret,
-              "Icon::kStamp_TopSecret mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Draft) ==
-                  FPDF_ANNOT_NAME_Stamp_Draft,
-              "Icon::kStamp_Draft mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_ForPublicRelease) ==
-                  FPDF_ANNOT_NAME_Stamp_ForPublicRelease,
-              "Icon::kStamp_ForPublicRelease mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Completed) ==
-                  FPDF_ANNOT_NAME_Stamp_Completed,
-              "Icon::kStamp_Completed mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Void) ==
-                  FPDF_ANNOT_NAME_Stamp_Void,
-              "Icon::kStamp_Void mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_PreliminaryResults) ==
-                  FPDF_ANNOT_NAME_Stamp_PreliminaryResults,
-              "Icon::kStamp_PreliminaryResults mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_InformationOnly) ==
-                  FPDF_ANNOT_NAME_Stamp_InformationOnly,
-              "Icon::kStamp_InformationOnly mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Rejected) ==
-                  FPDF_ANNOT_NAME_Stamp_Rejected,
-              "Icon::kStamp_Rejected mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Witness) ==
-                  FPDF_ANNOT_NAME_Stamp_Witness,
-              "Icon::kStamp_Witness mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_InitialHere) ==
-                  FPDF_ANNOT_NAME_Stamp_InitialHere,
-              "Icon::kStamp_InitialHere mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_SignHere) ==
-                  FPDF_ANNOT_NAME_Stamp_SignHere,
-              "Icon::kStamp_SignHere mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Accepted) ==
-                  FPDF_ANNOT_NAME_Stamp_Accepted,
-              "Icon::kStamp_Accepted mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Custom) ==
-                  FPDF_ANNOT_NAME_Stamp_Custom,
-              "Icon::kStamp_Custom mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kStamp_Image) ==
-                  FPDF_ANNOT_NAME_Stamp_Image,
-              "Icon::kStamp_Image mismatch");
-static_assert(static_cast<int>(CPDF_Annot::Icon::kLast) == FPDF_ANNOT_NAME_LAST,
-              "Icon::kLast mismatch");
-
 // These checks ensure the consistency of reply type values across core/ and
 // public.
 static_assert(static_cast<int>(CPDF_Annot::ReplyType::kUnknown) ==
@@ -514,65 +394,10 @@ class RawAnnotContext final : public CPDF_AnnotContext {
   const RetainPtr<CPDF_Page> owned_page_;
 };
 
-class AnnotAppearanceExporter final : public CPDF_PageOrganizer {
- public:
-  AnnotAppearanceExporter(CPDF_Document* dest_doc, CPDF_Document* src_doc)
-      : CPDF_PageOrganizer(dest_doc, src_doc) {}
-
-  RetainPtr<CPDF_Stream> ExportFormXObject(
-      RetainPtr<const CPDF_Stream> src_stream) {
-    if (!src_stream || !Init()) {
-      return nullptr;
-    }
-
-    RetainPtr<CPDF_Object> cloned_object = src_stream->Clone();
-    RetainPtr<CPDF_Stream> cloned_stream = ToStream(cloned_object);
-    if (!cloned_stream) {
-      return nullptr;
-    }
-
-    const uint32_t src_obj_num = src_stream->GetObjNum();
-    const uint32_t dest_obj_num = dest()->AddIndirectObject(cloned_object);
-    if (src_obj_num) {
-      AddObjectMapping(src_obj_num, dest_obj_num);
-    }
-
-    if (!UpdateReference(cloned_object)) {
-      return nullptr;
-    }
-
-    return cloned_stream;
-  }
-};
-
 // Checks if an annotation subtype can have a /Name entry.
 bool IsNameSubtype(FPDF_ANNOTATION_SUBTYPE subtype) {
   return subtype == FPDF_ANNOT_TEXT || subtype == FPDF_ANNOT_FILEATTACHMENT ||
          subtype == FPDF_ANNOT_SOUND || subtype == FPDF_ANNOT_STAMP;
-}
-
-// Checks if a specific name value is valid for a given annotation subtype.
-bool IsNameValidForSubtype(FPDF_ANNOT_NAME name,
-                           FPDF_ANNOTATION_SUBTYPE subtype) {
-  if (name <= FPDF_ANNOT_NAME_UNKNOWN || name > FPDF_ANNOT_NAME_LAST) {
-    return false;
-  }
-  switch (subtype) {
-    case FPDF_ANNOT_TEXT:
-      return name >= FPDF_ANNOT_NAME_Text_Comment &&
-             name <= FPDF_ANNOT_NAME_Text_Insert;
-    case FPDF_ANNOT_FILEATTACHMENT:
-      return name >= FPDF_ANNOT_NAME_File_Graph &&
-             name <= FPDF_ANNOT_NAME_File_Tag;
-    case FPDF_ANNOT_SOUND:
-      return name >= FPDF_ANNOT_NAME_Sound_Speaker &&
-             name <= FPDF_ANNOT_NAME_Sound_Mic;
-    case FPDF_ANNOT_STAMP:
-      return name >= FPDF_ANNOT_NAME_Stamp_Approved &&
-             name <= FPDF_ANNOT_NAME_Stamp_Image;
-    default:
-      return false;
-  }
 }
 
 bool HasAPStream(const CPDF_Dictionary* pAnnotDict) {
@@ -4139,57 +3964,37 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFPage_RemoveAnnotRaw(FPDF_DOCUMENT doc,
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_SetName(FPDF_ANNOTATION annot,
-                                                      FPDF_ANNOT_NAME name) {
+                                                      FPDF_BYTESTRING name) {
   RetainPtr<CPDF_Dictionary> dict =
       GetMutableAnnotDictFromFPDFAnnotation(annot);
-  if (!dict) {
+  if (!dict || !name || !*name) {
     return false;
   }
-
-  const FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
-  if (!IsNameSubtype(subtype)) {
+  if (!IsNameSubtype(FPDFAnnot_GetSubtype(annot))) {
     return false;
   }
-
-  if (name == FPDF_ANNOT_NAME_UNKNOWN) {
-    dict->RemoveFor("Name");
-    dict->RemoveFor(pdfium::annotation::kAP);
-    return true;
-  }
-
-  if (!IsNameValidForSubtype(name, subtype)) {
-    return false;
-  }
-
-  auto internal_name = static_cast<CPDF_Annot::Icon>(name);
-  ByteString name_str = CPDF_Annot::IconToString(internal_name);
-  if (name_str.IsEmpty()) {
-    return false;
-  }
-
-  dict->SetNewFor<CPDF_Name>("Name", name_str);
-
+  // A name object, not a string: /Name /#23LBG... is what Acrobat reads
+  // back as "#LBG...". Appearance streams are deliberately left alone —
+  // stamps own theirs, icon subtypes are rebaked by the caller. Any name
+  // is accepted: the predefined sets are a reader obligation (ISO 32000-2
+  // tables 175/184/187/188 all allow additional names).
+  dict->SetNewFor<CPDF_Name>("Name", ByteString(name));
   return true;
 }
 
-FPDF_EXPORT FPDF_ANNOT_NAME FPDF_CALLCONV
-EPDFAnnot_GetName(FPDF_ANNOTATION annot) {
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFAnnot_GetName(FPDF_ANNOTATION annot, char* buffer, unsigned long buflen) {
   const CPDF_Dictionary* dict = GetAnnotDictFromFPDFAnnotation(annot);
   if (!dict) {
-    return FPDF_ANNOT_NAME_UNKNOWN;
+    return 0;
   }
-
-  if (!IsNameSubtype(FPDFAnnot_GetSubtype(annot))) {
-    return FPDF_ANNOT_NAME_UNKNOWN;
-  }
-
-  ByteString name_str = dict->GetNameFor("Name");
+  const ByteString name_str = dict->GetNameFor("Name");
   if (name_str.IsEmpty()) {
-    return FPDF_ANNOT_NAME_UNKNOWN;
+    return 0;
   }
-
-  CPDF_Annot::Icon internal_name = CPDF_Annot::StringToIcon(name_str);
-  return static_cast<FPDF_ANNOT_NAME>(internal_name);
+  // SAFETY: required from caller.
+  return NulTerminateMaybeCopyAndReturnLength(
+      name_str, UNSAFE_BUFFERS(SpanFromFPDFApiArgs(buffer, buflen)));
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
@@ -4627,259 +4432,6 @@ EPDFAnnot_SetAppearanceFromPage(FPDF_ANNOTATION annot,
   ap_dict->SetNewFor<CPDF_Reference>("N", dest_doc, cloned_stream->GetObjNum());
 
   return true;
-}
-
-FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
-EPDFAnnot_ExportAppearanceAsDocument(FPDF_ANNOTATION annot) {
-  CPDF_AnnotContext* ctx = CPDFAnnotContextFromFPDFAnnotation(annot);
-  if (!ctx) {
-    return nullptr;
-  }
-
-  IPDF_Page* src_page = ctx->GetPage();
-  CPDF_Document* src_doc = src_page ? src_page->GetDocument() : nullptr;
-  CPDF_DocumentViewScope document_view(src_doc);
-  const CPDF_Dictionary* annot_dict = ctx->GetAnnotDict();
-  if (!annot_dict || !src_doc) {
-    return nullptr;
-  }
-
-  RetainPtr<CPDF_Stream> ap_stream =
-      GetAnnotAP(annot_dict, CPDF_Annot::AppearanceMode::kNormal);
-  if (!ap_stream) {
-    return nullptr;
-  }
-
-  CFX_FloatRect bbox = ap_stream->GetDict()->GetRectFor("BBox");
-  bbox.Normalize();
-  if (bbox.IsEmpty()) {
-    bbox = annot_dict->GetRectFor(pdfium::annotation::kRect);
-    bbox.Normalize();
-  }
-  if (bbox.IsEmpty()) {
-    return nullptr;
-  }
-
-  const float page_width = bbox.Width();
-  const float page_height = bbox.Height();
-  if (page_width <= 0 || page_height <= 0) {
-    return nullptr;
-  }
-
-  FPDF_DOCUMENT exported_doc = FPDF_CreateNewDocument();
-  if (!exported_doc) {
-    return nullptr;
-  }
-
-  CPDF_Document* dest_doc = CPDFDocumentFromFPDFDocument(exported_doc);
-  if (!dest_doc) {
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  AnnotAppearanceExporter exporter(dest_doc, src_doc);
-  RetainPtr<CPDF_Stream> cloned_stream = exporter.ExportFormXObject(ap_stream);
-  if (!cloned_stream) {
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  FPDF_PAGE exported_page =
-      FPDFPage_New(exported_doc, 0, page_width, page_height);
-  if (!exported_page) {
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  CPDF_Page* dest_page = CPDFPageFromFPDFPage(exported_page);
-  if (!dest_page) {
-    FPDF_ClosePage(exported_page);
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  CFX_Matrix form_matrix = cloned_stream->GetDict()->GetMatrixFor("Matrix");
-
-  auto form = std::make_unique<CPDF_Form>(
-      dest_doc, dest_page->GetMutableResources(), std::move(cloned_stream));
-  form->ParseContent();
-
-  CFX_PointF mapped_origin =
-      form_matrix.Transform(CFX_PointF(bbox.left, bbox.bottom));
-
-  auto form_obj = std::make_unique<CPDF_FormObject>(
-      CPDF_PageObject::kNoContentStream, std::move(form),
-      CFX_Matrix(1, 0, 0, 1, -mapped_origin.x, -mapped_origin.y));
-  form_obj->CalcBoundingBox();
-  form_obj->SetDirty(true);
-  dest_page->AppendPageObject(std::move(form_obj));
-
-  if (!FPDFPage_GenerateContent(exported_page)) {
-    FPDF_ClosePage(exported_page);
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  FPDF_ClosePage(exported_page);
-  return exported_doc;
-}
-
-FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
-EPDFAnnot_ExportMultipleAppearancesAsDocument(FPDF_ANNOTATION* annots,
-                                              int annot_count) {
-  if (!annots || annot_count <= 0) {
-    return nullptr;
-  }
-
-  // Validate first annotation and extract source page/document.
-  CPDF_AnnotContext* first_ctx = CPDFAnnotContextFromFPDFAnnotation(annots[0]);
-  if (!first_ctx) {
-    return nullptr;
-  }
-
-  IPDF_Page* src_page = first_ctx->GetPage();
-  CPDF_Document* src_doc = src_page ? src_page->GetDocument() : nullptr;
-  if (!src_doc) {
-    return nullptr;
-  }
-  CPDF_DocumentViewScope document_view(src_doc);
-
-  struct AnnotInfo {
-    RetainPtr<CPDF_Stream> ap_stream;
-    CFX_FloatRect ap_bbox;
-    CFX_FloatRect annot_rect;
-  };
-
-  std::vector<AnnotInfo> infos;
-  infos.reserve(annot_count);
-
-  CFX_FloatRect combined_rect;
-  bool first = true;
-
-  for (int i = 0; i < annot_count; i++) {
-    CPDF_AnnotContext* ctx = CPDFAnnotContextFromFPDFAnnotation(annots[i]);
-    if (!ctx) {
-      return nullptr;
-    }
-
-    // All annotations must share the same source document.
-    IPDF_Page* page_i = ctx->GetPage();
-    if (!page_i || page_i->GetDocument() != src_doc) {
-      return nullptr;
-    }
-
-    const CPDF_Dictionary* annot_dict = ctx->GetAnnotDict();
-    if (!annot_dict) {
-      return nullptr;
-    }
-
-    RetainPtr<CPDF_Stream> ap_stream =
-        GetAnnotAP(annot_dict, CPDF_Annot::AppearanceMode::kNormal);
-    if (!ap_stream) {
-      return nullptr;
-    }
-
-    CFX_FloatRect ap_bbox = ap_stream->GetDict()->GetRectFor("BBox");
-    ap_bbox.Normalize();
-    if (ap_bbox.IsEmpty()) {
-      ap_bbox = annot_dict->GetRectFor(pdfium::annotation::kRect);
-      ap_bbox.Normalize();
-    }
-    if (ap_bbox.IsEmpty()) {
-      return nullptr;
-    }
-
-    CFX_FloatRect annot_rect =
-        annot_dict->GetRectFor(pdfium::annotation::kRect);
-    annot_rect.Normalize();
-    if (annot_rect.IsEmpty()) {
-      return nullptr;
-    }
-
-    if (first) {
-      combined_rect = annot_rect;
-      first = false;
-    } else {
-      combined_rect.Union(annot_rect);
-    }
-
-    infos.push_back({std::move(ap_stream), ap_bbox, annot_rect});
-  }
-
-  const float page_width = combined_rect.Width();
-  const float page_height = combined_rect.Height();
-  if (page_width <= 0 || page_height <= 0) {
-    return nullptr;
-  }
-
-  FPDF_DOCUMENT exported_doc = FPDF_CreateNewDocument();
-  if (!exported_doc) {
-    return nullptr;
-  }
-
-  CPDF_Document* dest_doc = CPDFDocumentFromFPDFDocument(exported_doc);
-  if (!dest_doc) {
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  FPDF_PAGE exported_page =
-      FPDFPage_New(exported_doc, 0, page_width, page_height);
-  if (!exported_page) {
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  CPDF_Page* dest_page = CPDFPageFromFPDFPage(exported_page);
-  if (!dest_page) {
-    FPDF_ClosePage(exported_page);
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  AnnotAppearanceExporter exporter(dest_doc, src_doc);
-
-  for (const auto& info : infos) {
-    RetainPtr<CPDF_Stream> cloned_stream =
-        exporter.ExportFormXObject(info.ap_stream);
-    if (!cloned_stream) {
-      FPDF_ClosePage(exported_page);
-      FPDF_CloseDocument(exported_doc);
-      return nullptr;
-    }
-
-    CFX_Matrix form_matrix = cloned_stream->GetDict()->GetMatrixFor("Matrix");
-
-    auto form = std::make_unique<CPDF_Form>(
-        dest_doc, dest_page->GetMutableResources(), std::move(cloned_stream));
-    form->ParseContent();
-
-    CFX_PointF mapped_origin = form_matrix.Transform(
-        CFX_PointF(info.ap_bbox.left, info.ap_bbox.bottom));
-
-    const float sx = info.annot_rect.Width() / info.ap_bbox.Width();
-    const float sy = info.annot_rect.Height() / info.ap_bbox.Height();
-    const float tx =
-        (info.annot_rect.left - combined_rect.left) - mapped_origin.x * sx;
-    const float ty =
-        (info.annot_rect.bottom - combined_rect.bottom) - mapped_origin.y * sy;
-
-    auto form_obj = std::make_unique<CPDF_FormObject>(
-        CPDF_PageObject::kNoContentStream, std::move(form),
-        CFX_Matrix(sx, 0, 0, sy, tx, ty));
-    form_obj->CalcBoundingBox();
-    form_obj->SetDirty(true);
-    dest_page->AppendPageObject(std::move(form_obj));
-  }
-
-  if (!FPDFPage_GenerateContent(exported_page)) {
-    FPDF_ClosePage(exported_page);
-    FPDF_CloseDocument(exported_doc);
-    return nullptr;
-  }
-
-  FPDF_ClosePage(exported_page);
-  return exported_doc;
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV EPDFAnnot_GetRect(FPDF_ANNOTATION annot,

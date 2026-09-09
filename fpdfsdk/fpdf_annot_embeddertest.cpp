@@ -6033,6 +6033,91 @@ TEST_F(FPDFAnnotEmbedderTest, SharedFormXObjectMatrix) {
   EXPECT_FLOAT_EQ(-5.42212f, matrix2.f);
 }
 
+TEST_F(FPDFAnnotEmbedderTest, SetNameAcceptsAnyNameAndKeepsAppearance) {
+  ScopedFPDFDocument doc(FPDF_CreateNewDocument());
+  ASSERT_TRUE(doc);
+  ScopedFPDFPage page(FPDFPage_New(doc.get(), 0, 400, 400));
+  ASSERT_TRUE(page);
+  ScopedFPDFAnnotation annot(FPDFPage_CreateAnnot(page.get(), FPDF_ANNOT_STAMP));
+  ASSERT_TRUE(annot);
+  const FS_RECTF rect{50.0f, 130.0f, 90.0f, 50.0f};
+  ASSERT_TRUE(FPDFAnnot_SetRect(annot.get(), &rect));
+  ScopedFPDFWideString ap = GetFPDFWideString(L"0 0 1 RG 1 w 0 0 m 10 10 l S");
+  ASSERT_TRUE(FPDFAnnot_SetAP(annot.get(), FPDF_ANNOT_APPEARANCEMODE_NORMAL, ap.get()));
+  ASSERT_TRUE(FPDFAnnot_HasKey(annot.get(), "AP"));
+
+  // Refusals.
+  EXPECT_FALSE(EPDFAnnot_SetName(nullptr, "#x"));
+  EXPECT_FALSE(EPDFAnnot_SetName(annot.get(), nullptr));
+  EXPECT_FALSE(EPDFAnnot_SetName(annot.get(), ""));
+  EXPECT_EQ(0u, EPDFAnnot_GetName(annot.get(), nullptr, 0));
+
+  // An Acrobat-style custom identifier: '#' is raw text to the caller; the
+  // serializer escapes it. /AP survives — unlike the UNKNOWN enum path.
+  static constexpr char kAcrobatId[] = "#LBGiYhk8V_oAfmqAPENiwD";
+  ASSERT_TRUE(EPDFAnnot_SetName(annot.get(), kAcrobatId));
+  EXPECT_TRUE(FPDFAnnot_HasKey(annot.get(), "AP"));
+  {
+    const unsigned long len = EPDFAnnot_GetName(annot.get(), nullptr, 0);
+    ASSERT_EQ(sizeof(kAcrobatId), len);
+    std::vector<char> buf(len);
+    EXPECT_EQ(len, EPDFAnnot_GetName(annot.get(), buf.data(), len));
+    EXPECT_STREQ(kAcrobatId, buf.data());
+  }
+  // The generic string reader (what the engine's raw-name fallback uses)
+  // decodes the name object too.
+  {
+    const unsigned long len =
+        FPDFAnnot_GetStringValue(annot.get(), "Name", nullptr, 0);
+    ASSERT_GT(len, 0u);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(len);
+    EXPECT_EQ(len, FPDFAnnot_GetStringValue(annot.get(), "Name", buf.data(), len));
+    EXPECT_EQ(L"#LBGiYhk8V_oAfmqAPENiwD", GetPlatformWString(buf.data()));
+  }
+
+  // A standard name is just another name.
+  ASSERT_TRUE(EPDFAnnot_SetName(annot.get(), "Approved"));
+  EXPECT_TRUE(FPDFAnnot_HasKey(annot.get(), "AP"));
+  {
+    const unsigned long len = EPDFAnnot_GetName(annot.get(), nullptr, 0);
+    std::vector<char> buf(len);
+    EXPECT_EQ(len, EPDFAnnot_GetName(annot.get(), buf.data(), len));
+    EXPECT_STREQ("Approved", buf.data());
+  }
+
+  // Removal is the generic key removal — /AP stays.
+  ASSERT_TRUE(EPDFAnnot_RemoveKey(annot.get(), "Name"));
+  EXPECT_EQ(0u, EPDFAnnot_GetName(annot.get(), nullptr, 0));
+  EXPECT_TRUE(FPDFAnnot_HasKey(annot.get(), "AP"));
+
+  // Only /Name-bearing subtypes accept it.
+  ScopedFPDFAnnotation square(FPDFPage_CreateAnnot(page.get(), FPDF_ANNOT_SQUARE));
+  ASSERT_TRUE(square);
+  EXPECT_FALSE(EPDFAnnot_SetName(square.get(), "Approved"));
+
+  // Round trip through a save: the '#' comes back as text.
+  ASSERT_TRUE(EPDFAnnot_SetName(annot.get(), kAcrobatId));
+  ASSERT_TRUE(FPDFPage_GenerateContent(page.get()));
+  ClearString();
+  ASSERT_TRUE(FPDF_SaveAsCopy(doc.get(), this, 0));
+  const std::string saved = GetString();
+  // Serialized as a NAME with '#' escaped, never as a string.
+  EXPECT_NE(std::string::npos, saved.find("/#23LBGiYhk8V_oAfmqAPENiwD"));
+  EXPECT_EQ(std::string::npos, saved.find("(#LBGiYhk8V_oAfmqAPENiwD)"));
+  ScopedSavedDoc saved_doc = OpenScopedSavedDocument();
+  ASSERT_TRUE(saved_doc);
+  ScopedFPDFPage saved_page(FPDF_LoadPage(saved_doc.get(), 0));
+  ASSERT_TRUE(saved_page);
+  ASSERT_EQ(2, FPDFPage_GetAnnotCount(saved_page.get()));
+  ScopedFPDFAnnotation reloaded(FPDFPage_GetAnnot(saved_page.get(), 0));
+  ASSERT_TRUE(reloaded);
+  const unsigned long len = EPDFAnnot_GetName(reloaded.get(), nullptr, 0);
+  ASSERT_EQ(sizeof(kAcrobatId), len);
+  std::vector<char> buf(len);
+  EXPECT_EQ(len, EPDFAnnot_GetName(reloaded.get(), buf.data(), len));
+  EXPECT_STREQ(kAcrobatId, buf.data());
+}
+
 TEST_F(FPDFAnnotEmbedderTest, GenerateFileAttachmentAppearance) {
   ScopedFPDFDocument doc(FPDF_CreateNewDocument());
   ASSERT_TRUE(doc);
@@ -6046,8 +6131,7 @@ TEST_F(FPDFAnnotEmbedderTest, GenerateFileAttachmentAppearance) {
   ASSERT_TRUE(FPDFAnnot_SetRect(annot.get(), &rect));
   ASSERT_TRUE(FPDFAnnot_SetColor(annot.get(), FPDFANNOT_COLORTYPE_Color, 255, 0,
                                  0, 255));
-  ASSERT_TRUE(
-      EPDFAnnot_SetName(annot.get(), FPDF_ANNOT_NAME_File_Paperclip));
+  ASSERT_TRUE(EPDFAnnot_SetName(annot.get(), "Paperclip"));
 
   ASSERT_TRUE(EPDFAnnot_GenerateAppearance(annot.get()));
 
@@ -6071,24 +6155,23 @@ TEST_F(FPDFAnnotEmbedderTest, GenerateFileAttachmentAppearancePerIcon) {
   ScopedFPDFPage page(FPDFPage_New(doc.get(), 0, 400, 400));
   ASSERT_TRUE(page);
 
-  auto make_appearance = [&](FPDF_ANNOT_NAME icon) {
+  auto make_appearance = [&](const char* icon) {
     ScopedFPDFAnnotation annot(
         FPDFPage_CreateAnnot(page.get(), FPDF_ANNOT_FILEATTACHMENT));
     EXPECT_TRUE(annot);
     const FS_RECTF rect{10.0f, 30.0f, 30.0f, 10.0f};
     EXPECT_TRUE(FPDFAnnot_SetRect(annot.get(), &rect));
-    if (icon != FPDF_ANNOT_NAME_UNKNOWN) {
+    if (icon) {
       EXPECT_TRUE(EPDFAnnot_SetName(annot.get(), icon));
     }
     EXPECT_TRUE(EPDFAnnot_GenerateAppearance(annot.get()));
     return GetNormalAppearance(annot.get());
   };
 
-  const std::wstring pushpin = make_appearance(FPDF_ANNOT_NAME_File_PushPin);
-  const std::wstring paperclip =
-      make_appearance(FPDF_ANNOT_NAME_File_Paperclip);
-  const std::wstring graph = make_appearance(FPDF_ANNOT_NAME_File_Graph);
-  const std::wstring tag = make_appearance(FPDF_ANNOT_NAME_File_Tag);
+  const std::wstring pushpin = make_appearance("PushPin");
+  const std::wstring paperclip = make_appearance("Paperclip");
+  const std::wstring graph = make_appearance("Graph");
+  const std::wstring tag = make_appearance("Tag");
 
   // Each icon draws a distinct glyph.
   EXPECT_NE(pushpin, paperclip);
@@ -6105,6 +6188,6 @@ TEST_F(FPDFAnnotEmbedderTest, GenerateFileAttachmentAppearancePerIcon) {
   EXPECT_THAT(paperclip, HasSubstr(L"S\n"));
 
   // An absent /Name renders the PushPin glyph (the ISO 32000 default).
-  const std::wstring default_icon = make_appearance(FPDF_ANNOT_NAME_UNKNOWN);
+  const std::wstring default_icon = make_appearance(nullptr);
   EXPECT_EQ(pushpin, default_icon);
 }

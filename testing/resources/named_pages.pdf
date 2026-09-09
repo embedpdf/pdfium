@@ -1,0 +1,117 @@
+%PDF-1.7
+%†Ú§Ù
+1 0 obj <<
+  /Type /Catalog
+  /Pages 2 0 R
+  /Names 10 0 R
+>>
+endobj
+2 0 obj <<
+  /Type /Pages
+  /Count 3
+  /Kids [
+    3 0 R
+    4 0 R
+    5 0 R
+  ]
+>>
+endobj
+% Page number 0.
+3 0 obj <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% Page number 1.
+4 0 obj <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% Page number 2.
+5 0 obj <<
+  /Type /Page
+  /Parent 2 0 R
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% A template page: outside the page tree, no /Parent (ISO 32000-2 12.7.7).
+6 0 obj <<
+  /Type /Template
+  /MediaBox [0 0 200 100]
+>>
+endobj
+% The catalog's name dictionary.
+10 0 obj <<
+  /Pages 11 0 R
+  /Templates 20 0 R
+>>
+endobj
+% Root of the /Pages name tree: two leaf kids, keys sorted across them.
+11 0 obj <<
+  /Kids [
+    12 0 R
+    13 0 R
+  ]
+>>
+endobj
+% Left leaf.
+12 0 obj <<
+  /Limits [(#alpha=Alpha) (Approved=Goedgekeurd)]
+  /Names [
+    (#alpha=Alpha) 3 0 R
+    (Approved=Goedgekeurd) 4 0 R
+  ]
+>>
+endobj
+% Right leaf: a dangling value (object 99 does not exist) and a UTF-16BE
+% key with a byte order mark, "St√§mpel=St√§mpel", the way Acrobat writes
+% non-ASCII keys.
+13 0 obj <<
+  /Limits [(Draft=Concept) <FEFF0053007400E4006D00700065006C003D0053007400E4006D00700065006C>]
+  /Names [
+    (Draft=Concept) 5 0 R
+    (Ghost) 99 0 R
+    <FEFF0053007400E4006D00700065006C003D0053007400E4006D00700065006C> 4 0 R
+  ]
+>>
+endobj
+% The /Templates name tree: a flat root.
+20 0 obj <<
+  /Names [
+    (Tpl=Hidden) 6 0 R
+  ]
+>>
+endobj
+xref
+0 21
+0000000000 65535 f 
+0000000015 00000 n 
+0000000084 00000 n 
+0000000192 00000 n 
+0000000286 00000 n 
+0000000380 00000 n 
+0000000532 00000 n 
+0000000000 65535 f 
+0000000000 65535 f 
+0000000000 65535 f 
+0000000630 00000 n 
+0000000760 00000 n 
+0000000831 00000 n 
+0000001141 00000 n 
+0000000000 65535 f 
+0000000000 65535 f 
+0000000000 65535 f 
+0000000000 65535 f 
+0000000000 65535 f 
+0000000000 65535 f 
+0000001436 00000 n 
+trailer <<
+  /Root 1 0 R
+  /Size 21
+>>
+startxref
+1496
+%%EOF

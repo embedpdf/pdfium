@@ -353,10 +353,12 @@ std::optional<IndexSearchResult> SearchNameNodeByIndexInternal(
     }
 
     size_t index = 2 * (nTargetPairIndex - *nCurPairIndex);
+    // EmbedPDF: a pair whose value does not resolve (a reference to a
+    // missing object) is still the pair at this index. Bailing here used to
+    // desynchronize `nCurPairIndex` from GetCount() and hide the key, so a
+    // dangling entry could be neither reported nor deleted. Callers already
+    // handle a null value.
     RetainPtr<CPDF_Object> value = pNames->GetMutableDirectObjectAt(index + 1);
-    if (!value) {
-      return std::nullopt;
-    }
 
     IndexSearchResult result;
     result.key = pNames->GetUnicodeTextAt(index);

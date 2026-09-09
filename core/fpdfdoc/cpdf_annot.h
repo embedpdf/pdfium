@@ -110,8 +110,9 @@ class CPDF_Annot {
   enum class VerticalAlignment { kTop = 0, kMiddle = 1, kBottom = 2 };
 
   // --------------------------------------------------------------------
-  // Built‑in icon (/Name) enumeration – must stay in sync with the public
-  // FPDF_ANNOT_NAME list above so that static_cast is safe both ways.
+  // Built-in icon (/Name) enumeration used by appearance generation. The
+  // public API exchanges /Name as text (EPDFAnnot_SetName/GetName); this
+  // enum is internal and StringToIcon()/IconToString() are the bridge.
   // --------------------------------------------------------------------
   enum class Icon {
     kUnknown = -1,
