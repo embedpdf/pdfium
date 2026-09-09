@@ -1918,35 +1918,6 @@ EPDFAnnot_SetAppearanceFromPage(FPDF_ANNOTATION annot,
                                 int page_index);
 
 // Experimental EmbedPDF Extension API.
-// Export an annotation's normal appearance (AP/N) as a standalone single-page
-// PDF document. The new page is sized to the appearance stream's BBox, or the
-// annotation rect when the BBox is unavailable.
-//
-//   annot - handle to an annotation with an appearance stream.
-//
-// Returns a new document containing the exported appearance, or NULL on error.
-// The caller owns the returned document and must close it with
-// FPDF_CloseDocument().
-FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
-EPDFAnnot_ExportAppearanceAsDocument(FPDF_ANNOTATION annot);
-
-// Experimental EmbedPDF Extension API.
-// Export multiple annotations' normal appearances (AP/N) as a standalone
-// single-page PDF document. The annotations must all belong to the same page.
-// The new page is sized to the union of all annotation rects, and each
-// appearance is placed at the correct relative position within the page.
-//
-//   annots      - array of annotation handles with appearance streams.
-//   annot_count - number of annotations in the array. Must be > 0.
-//
-// Returns a new document containing the combined appearances, or NULL on error.
-// The caller owns the returned document and must close it with
-// FPDF_CloseDocument().
-FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
-EPDFAnnot_ExportMultipleAppearancesAsDocument(FPDF_ANNOTATION* annots,
-                                              int annot_count);
-
-// Experimental EmbedPDF Extension API.
 // Get the annotation rectangle with normalization applied.
 // Wraps FPDFAnnot_GetRect and ensures the returned rect is normalized
 // (left <= right, bottom <= top in page coordinates).
