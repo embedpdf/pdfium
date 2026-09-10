@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_form.h"
+#include "core/fpdfapi/page/cpdf_docpagedata.h"
+#include "core/fpdfapi/render/cpdf_docrenderdata.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pagemodule.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
@@ -26,7 +28,7 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fxcrt/cfx_read_only_span_stream.h"
+#include "core/fxcrt/cfx_read_only_container_stream.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/span.h"
@@ -268,9 +270,11 @@ std::string BuildCorruptPagesDelta(const std::string& base_pdf) {
   return delta.str();
 }
 
-RetainPtr<CFX_ReadOnlySpanStream> MakeStreamForString(const std::string& data) {
-  return pdfium::MakeRetain<CFX_ReadOnlySpanStream>(
-      pdfium::span(reinterpret_cast<const uint8_t*>(data.data()), data.size()));
+RetainPtr<IFX_SeekableReadStream> MakeStreamForString(const std::string& data) {
+  // Own the bytes: a base parses on first touch, so the stream must outlive
+  // the call (a span of a temporary would dangle).
+  return pdfium::MakeRetain<CFX_ReadOnlyByteStringStream>(
+      ByteString(data.data(), data.size()));
 }
 
 RetainPtr<CPDF_BaseDocument> LoadBaseDocumentFromString(
@@ -726,3 +730,60 @@ TEST_F(CPDFLayerDocumentTest, ParseIndirectObjectStillUnsupportedOnLayer) {
   EXPECT_DEATH_IF_SUPPORTED(layer->ParseIndirectObject(1), "");
 }
 #endif  // DCHECK_IS_ON()
+
+
+TEST_F(CPDFLayerDocumentTest, LazyBaseParseIsSharedAndNeverLeaksPromotions) {
+  const std::string pdf = BuildPdfWithFormXObject();
+  RetainPtr<CPDF_BaseDocument> base = LoadBaseDocumentFromString(pdf);
+  ASSERT_TRUE(base);
+  // Loading touched the catalog and page tree only: the form XObject (4)
+  // was not walked.
+  EXPECT_FALSE(base->GetIndirectObject(4));
+
+  auto layer_a = std::make_unique<CPDF_LayerDocument>(base, nullptr);
+  auto layer_b = std::make_unique<CPDF_LayerDocument>(base, nullptr);
+
+  // Layer A touches the form first: parsed once, frozen, into the base.
+  RetainPtr<const CPDF_Object> via_a = layer_a->GetIndirectObject(4);
+  ASSERT_TRUE(via_a);
+  EXPECT_TRUE(via_a->IsFrozen());
+  EXPECT_EQ(via_a.Get(), base->GetIndirectObject(4).Get());
+  EXPECT_EQ(0u, layer_a->GetPromotedObjectCount());
+  // Layer B sees the same shared object, no second parse.
+  EXPECT_EQ(via_a.Get(), layer_b->GetIndirectObject(4).Get());
+  EXPECT_EQ(0u, layer_b->GetPromotedObjectCount());
+
+  // Layer A writes: a clone is promoted into A alone; the base keeps its
+  // frozen object and B keeps reading it.
+  RetainPtr<CPDF_Object> mutable_a = layer_a->GetMutableIndirectObject(4);
+  ASSERT_TRUE(mutable_a);
+  EXPECT_NE(mutable_a.Get(), via_a.Get());
+  EXPECT_FALSE(mutable_a->IsFrozen());
+  EXPECT_EQ(1u, layer_a->GetPromotedObjectCount());
+  EXPECT_EQ(via_a.Get(), base->GetIndirectObject(4).Get());
+  EXPECT_EQ(via_a.Get(), layer_b->GetIndirectObject(4).Get());
+  EXPECT_EQ(0u, layer_b->GetPromotedObjectCount());
+
+  // With A's effective view active, a base object nobody has touched yet
+  // (the page, 3, references the promoted 4) still parses from the bytes
+  // and never picks up A's clone.
+  {
+    CPDF_DocumentViewScope effective_a(layer_a.get());
+    RetainPtr<const CPDF_Object> page = base->GetFrozenObjectForLayer(3);
+    ASSERT_TRUE(page);
+    EXPECT_TRUE(page->IsFrozen());
+    RetainPtr<const CPDF_Dictionary> xobjects =
+        page->AsDictionary()->GetDictFor("Resources")->GetDictFor("XObject");
+    ASSERT_TRUE(xobjects);
+    // Through the base's frozen view the reference resolves to the shared
+    // frozen form, not to A's promoted clone.
+    CPDF_DocumentViewScope frozen(base.Get());
+    EXPECT_EQ(via_a.Get(), xobjects->GetObjectFor("Fm0")->GetDirect().Get());
+  }
+  for (const auto& item : *base) {
+    if (item.second) {
+      EXPECT_TRUE(item.second->IsFrozen()) << "base object " << item.first;
+      EXPECT_NE(item.second.Get(), mutable_a.Get());
+    }
+  }
+}

@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "core/fdrm/fx_crypt_sha.h"
+#include "core/fxcrt/data_vector.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
@@ -1972,4 +1974,117 @@ TEST_F(EPDFSignatureEmbedderTest, LayerEncryptedSigningPreservesExistingSignatur
   EXPECT_EQ(first, DigestOf(signed_doc.get(), 0));
   EXPECT_EQ(second, DigestOf(signed_doc.get(), 1));
   EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(sibling.get()));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LoadedBytesPlainDocument) {
+  RawPdf p = FormObjects();
+  RawPdf n = AppendRawUpdate(p, 5, "<</T(total) /Parent 4 0 R /V(changed)>>", 7);
+  ScopedFPDFDocument doc = OpenRaw(n);
+  ASSERT_TRUE(doc);
+  EXPECT_EQ(n.bytes.size(), EPDFDoc_GetLoadedBytesSize(doc.get()));
+  EXPECT_EQ(n.bytes.size(), EPDFDoc_GetBaseBytesSize(doc.get()));
+  std::string out(n.bytes.size(), '\0');
+  EXPECT_EQ(n.bytes.size(),
+            EPDFDoc_ReadLoadedBytes(doc.get(), 0, out.data(), out.size()));
+  EXPECT_EQ(n.bytes, out);
+  // A revision prefix reads exactly.
+  std::string prefix(p.bytes.size(), '\0');
+  EXPECT_EQ(p.bytes.size(),
+            EPDFDoc_ReadLoadedBytes(doc.get(), 0, prefix.data(), prefix.size()));
+  EXPECT_EQ(p.bytes, prefix);
+  // Out of range, NULL, and empty reads copy nothing.
+  EXPECT_EQ(0ul, EPDFDoc_ReadLoadedBytes(doc.get(), n.bytes.size() - 1, out.data(), 2));
+  EXPECT_EQ(0ul, EPDFDoc_ReadLoadedBytes(doc.get(), 0, nullptr, 1));
+  EXPECT_EQ(0ul, EPDFDoc_ReadLoadedBytes(doc.get(), 0, out.data(), 0));
+  EXPECT_EQ(0u, EPDFDoc_GetLoadedBytesSize(nullptr));
+  EXPECT_EQ(0u, EPDFDoc_GetBaseBytesSize(nullptr));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LoadedBytesLayerDocument) {
+  RawPdf p = FormObjects();
+  RawPdf n = AppendRawUpdate(p, 5, "<</T(total) /Parent 4 0 R /V(changed)>>", 7);
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  const std::string delta = n.bytes.substr(p.bytes.size());
+  ScopedFPDFDocument layer = OpenLayer(base.get(), delta);
+  ScopedFPDFDocument fresh = OpenLayer(base.get());
+  ASSERT_TRUE(layer);
+  ASSERT_TRUE(fresh);
+  // Base followed by the delta it was opened with; the base alone for a
+  // fresh layer.
+  EXPECT_EQ(n.bytes.size(), EPDFDoc_GetLoadedBytesSize(layer.get()));
+  EXPECT_EQ(p.bytes.size(), EPDFDoc_GetBaseBytesSize(layer.get()));
+  EXPECT_EQ(p.bytes.size(), EPDFDoc_GetLoadedBytesSize(fresh.get()));
+  EXPECT_EQ(p.bytes.size(), EPDFDoc_GetBaseBytesSize(fresh.get()));
+  std::string out(n.bytes.size(), '\0');
+  EXPECT_EQ(n.bytes.size(),
+            EPDFDoc_ReadLoadedBytes(layer.get(), 0, out.data(), out.size()));
+  EXPECT_EQ(n.bytes, out);
+  std::string tail(delta.size(), '\0');
+  EXPECT_EQ(delta.size(),
+            EPDFDoc_ReadLoadedBytes(layer.get(), p.bytes.size(), tail.data(), tail.size()));
+  EXPECT_EQ(delta, tail);
+  // An unsaved edit on the layer changes nothing about its loaded bytes.
+  ASSERT_TRUE(EPDFSig_SetFieldLock(fresh.get(), 6, EPDF_SIG_FIELD_ACTION_ALL, nullptr, 0, 0));
+  EXPECT_EQ(p.bytes.size(), EPDFDoc_GetLoadedBytesSize(fresh.get()));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, BaseSha256IsLazyAndCanBeSupplied) {
+  RawPdf p = FormObjects();
+  // Lazy: the base hashes its own bytes on first use, and it is the real hash.
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument layer = OpenLayer(base.get());
+  ASSERT_TRUE(layer);
+  unsigned char reported[32];
+  ASSERT_TRUE(EPDFLayer_GetBaseSha256(layer.get(), reported));
+  const DataVector<uint8_t> expected = CRYPT_SHA256Generate(
+      pdfium::span(reinterpret_cast<const uint8_t*>(p.bytes.data()), p.bytes.size()));
+  ASSERT_EQ(32u, expected.size());
+  EXPECT_EQ(0, memcmp(reported, expected.data(), 32));
+  EXPECT_FALSE(EPDFLayer_GetBaseSha256(layer.get(), nullptr));
+  ScopedFPDFDocument plain = OpenRaw(p);
+  EXPECT_FALSE(EPDFLayer_GetBaseSha256(plain.get(), reported));
+
+  // Supplied: a host that already hashed the bytes hands the value over and
+  // the runtime takes its word. Artifacts written on that base carry it.
+  ScopedBase supplied(p.bytes);
+  ASSERT_TRUE(supplied.get());
+  unsigned char claimed[32];
+  for (int i = 0; i < 32; ++i) claimed[i] = static_cast<unsigned char>(i);
+  EPDF_SetBaseDocumentSha256(supplied.get(), claimed);
+  ScopedFPDFDocument on_supplied = OpenLayer(supplied.get());
+  ASSERT_TRUE(on_supplied);
+  ASSERT_TRUE(EPDFLayer_GetBaseSha256(on_supplied.get(), reported));
+  EXPECT_EQ(0, memcmp(reported, claimed, 32));
+  ASSERT_TRUE(EPDFSig_SetFieldLock(on_supplied.get(), 6, EPDF_SIG_FIELD_ACTION_ALL, nullptr, 0, 0));
+  unsigned long size = 0;
+  EPDFLayerSaveStatus status = EPDFLayerSaveStatus_kSaveFailed;
+  void* raw = EPDFLayer_SaveLayerArtifactToOwnedBuffer(on_supplied.get(), &size, &status);
+  ASSERT_TRUE(raw);
+  ASSERT_EQ(EPDFLayerSaveStatus_kSuccess, status);
+  std::string artifact(static_cast<char*>(raw), size);
+  EPDF_FreeBuffer(raw);
+
+  // The trust boundary: the artifact opens on a base with the same claim and
+  // is refused by a base that hashed the real bytes.
+  FPDF_FILEACCESS access = {};
+  access.m_FileLen = static_cast<unsigned long>(artifact.size());
+  access.m_Param = &artifact;
+  access.m_GetBlock = [](void* param, unsigned long pos, unsigned char* out,
+                         unsigned long len) -> int {
+    const std::string& b = *static_cast<std::string*>(param);
+    if (pos > b.size() || len > b.size() - pos) return 0;
+    memcpy(out, b.data() + pos, len);
+    return 1;
+  };
+  EPDFLayerOpenStatus open_status = EPDFLayerOpenStatus_kOpenFailed;
+  ScopedFPDFDocument reopened(
+      EPDFLayer_OpenLayerArtifact(supplied.get(), &access, nullptr, &open_status));
+  EXPECT_TRUE(reopened);
+  EXPECT_EQ(EPDFLayerOpenStatus_kSuccess, open_status);
+  ScopedFPDFDocument refused(
+      EPDFLayer_OpenLayerArtifact(base.get(), &access, nullptr, &open_status));
+  EXPECT_FALSE(refused);
+  EXPECT_EQ(EPDFLayerOpenStatus_kBaseLayerMismatch, open_status);
 }

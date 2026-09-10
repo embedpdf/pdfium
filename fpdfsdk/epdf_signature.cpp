@@ -1607,6 +1607,58 @@ EPDFSig_DigestByteRange(FPDF_DOCUMENT document,
 }
 
 // ---------------------------------------------------------------------------
+// Loaded bytes.
+// ---------------------------------------------------------------------------
+
+FPDF_EXPORT unsigned long long FPDF_CALLCONV
+EPDFDoc_GetLoadedBytesSize(FPDF_DOCUMENT document) {
+  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
+  if (!file) {
+    return 0;
+  }
+  const FX_FILESIZE size = file->GetSize();
+  return size > 0 ? static_cast<unsigned long long>(size) : 0;
+}
+
+FPDF_EXPORT unsigned long long FPDF_CALLCONV
+EPDFDoc_GetBaseBytesSize(FPDF_DOCUMENT document) {
+  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
+  if (const CPDF_LayerDocument* layer = CPDF_LayerDocument::FromDocument(doc)) {
+    const FX_FILESIZE size = layer->GetBaseDocument()->GetRawBaseSize();
+    return size > 0 ? static_cast<unsigned long long>(size) : 0;
+  }
+  return EPDFDoc_GetLoadedBytesSize(document);
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFDoc_ReadLoadedBytes(FPDF_DOCUMENT document,
+                        unsigned long long offset,
+                        void* buffer,
+                        unsigned long length) {
+  if (!buffer || length == 0) {
+    return 0;
+  }
+  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
+  if (!file || file->GetSize() < 0) {
+    return 0;
+  }
+  const uint64_t size = static_cast<uint64_t>(file->GetSize());
+  if (offset > size || length > size - offset) {
+    return 0;
+  }
+  // SAFETY: the caller provides |length| bytes.
+  auto out = UNSAFE_BUFFERS(pdfium::span(static_cast<uint8_t*>(buffer), length));
+  if (!file->ReadBlockAtOffset(out, static_cast<FX_FILESIZE>(offset))) {
+    return 0;
+  }
+  return length;
+}
+
+// ---------------------------------------------------------------------------
 // Signing.
 // ---------------------------------------------------------------------------
 

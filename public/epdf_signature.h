@@ -451,6 +451,36 @@ EPDFSig_DigestByteRange(FPDF_DOCUMENT document,
                         unsigned long* inout_len);
 
 // ---------------------------------------------------------------------------
+// Loaded bytes.
+//
+// The bytes the document was loaded from: a plain document's file, or for a
+// layer document (EPDFLayer_OpenLayer) the base file followed by the delta
+// it was opened with - exactly what the revision, coverage and digest
+// functions above read. Unsaved edits are not part of it.
+// ---------------------------------------------------------------------------
+
+// Experimental EmbedPDF Extension API.
+// Size of the loaded bytes, or 0 when the document has no parser.
+FPDF_EXPORT unsigned long long FPDF_CALLCONV
+EPDFDoc_GetLoadedBytesSize(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
+// Size of the base the loaded bytes start with: the whole file for a plain
+// document, the base file for a layer (its delta, if any, follows it).
+FPDF_EXPORT unsigned long long FPDF_CALLCONV
+EPDFDoc_GetBaseBytesSize(FPDF_DOCUMENT document);
+
+// Experimental EmbedPDF Extension API.
+// Copy |length| loaded bytes starting at |offset| into |buffer|. Returns
+// |length| on success, 0 when |buffer| is NULL or the range is not within
+// the loaded bytes.
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+EPDFDoc_ReadLoadedBytes(FPDF_DOCUMENT document,
+                        unsigned long long offset,
+                        void* buffer,
+                        unsigned long length);
+
+// ---------------------------------------------------------------------------
 // Signing.
 //
 // Signing never touches the live document. The caller snapshots the
