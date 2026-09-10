@@ -615,7 +615,10 @@ CPDF_Creator::Stage CPDF_Creator::WriteDoc_Stage4() {
       return Stage::kInvalid;
     }
   } else {
-    if (!archive_->WriteString("/W[0 4 1]/Index[")) {
+    // EmbedPDF: a cross-reference stream is a stream object with a /Type,
+    // closed by endobj like any other (ISO 32000-2 7.5.8); readers that
+    // walk objects (the trailer-end scanner, pyHanko) stop at a missing one.
+    if (!archive_->WriteString("/Type/XRef/W[0 4 1]/Index[")) {
       return Stage::kInvalid;
     }
     if (is_incremental_ && parser_ && parser_->GetLastXRefOffset() == 0) {
@@ -669,7 +672,7 @@ CPDF_Creator::Stage CPDF_Creator::WriteDoc_Stage4() {
         }
       }
     }
-    if (!archive_->WriteString("\r\nendstream")) {
+    if (!archive_->WriteString("\r\nendstream\r\nendobj")) {
       return Stage::kInvalid;
     }
   }

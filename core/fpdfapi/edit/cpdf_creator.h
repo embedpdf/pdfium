@@ -55,6 +55,15 @@ class CPDF_Creator {
   bool Create(Mask<CreateFlags> flags, int32_t file_version);
   FailureReason GetFailureReason() const { return failure_reason_; }
 
+  // Experimental EmbedPDF Extension: where the last Create() wrote each
+  // object it emitted, and where its cross-reference section starts. Valid
+  // after a successful Create(); used to locate a signature dictionary's
+  // placeholders in the saved bytes without searching.
+  const std::map<uint32_t, FX_FILESIZE>& object_offsets() const {
+    return object_offsets_;
+  }
+  FX_FILESIZE xref_start() const { return xref_start_; }
+
   static ByteString FormatXrefOffset10ForTesting(FX_FILESIZE offset);
 
   // Experimental EmbedPDF Extension: Set encryption for documents that weren't
