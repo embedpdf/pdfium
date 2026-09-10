@@ -14,6 +14,7 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_string.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "public/cpp/fpdf_scopers.h"
 #include "public/epdf_form.h"
@@ -24,6 +25,8 @@
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
 #include "testing/fx_string_testhelpers.h"
+#include "testing/utils/file_util.h"
+#include "testing/utils/path_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -661,13 +664,8 @@ struct Sealed {
   std::string digest_hex;
 };
 
-// prepare -> save -> seal -> write, returning the signed bytes.
-bool SignField(FPDF_DOCUMENT doc, uint32_t field, const EPDF_SIG_PREPARE& opts, Sealed* out) {
-  const uint32_t value = EPDFSig_Prepare(doc, field, &opts);
-  if (value == 0) {
-    ADD_FAILURE() << "EPDFSig_Prepare refused";
-    return false;
-  }
+// save -> seal -> write for an already prepared /V |value|.
+bool SealPrepared(FPDF_DOCUMENT doc, uint32_t value, int digest_algorithm, Sealed* out) {
   unsigned long long size = 0;
   unsigned long long obj_offset = 0;
   unsigned long long obj_len = 0;
@@ -680,7 +678,7 @@ bool SignField(FPDF_DOCUMENT doc, uint32_t field, const EPDF_SIG_PREPARE& opts, 
   EPDF_FreeBuffer(buffer);
   unsigned char digest[64];
   unsigned long len = sizeof(digest);
-  if (!EPDFSig_Seal(out->bytes.data(), size, obj_offset, obj_len, opts.digest, out->range,
+  if (!EPDFSig_Seal(out->bytes.data(), size, obj_offset, obj_len, digest_algorithm, out->range,
                     &out->contents_offset, &out->contents_hex_len, digest, &len)) {
     ADD_FAILURE() << "EPDFSig_Seal failed; object span: "
                   << std::string(reinterpret_cast<const char*>(out->bytes.data()) + obj_offset,
@@ -695,6 +693,16 @@ bool SignField(FPDF_DOCUMENT doc, uint32_t field, const EPDF_SIG_PREPARE& opts, 
   }
   return EPDFSig_WriteContents(out->bytes.data(), size, out->contents_offset, out->contents_hex_len,
                                kFakeCms, sizeof(kFakeCms));
+}
+
+// prepare -> save -> seal -> write, returning the signed bytes.
+bool SignField(FPDF_DOCUMENT doc, uint32_t field, const EPDF_SIG_PREPARE& opts, Sealed* out) {
+  const uint32_t value = EPDFSig_Prepare(doc, field, &opts);
+  if (value == 0) {
+    ADD_FAILURE() << "EPDFSig_Prepare refused";
+    return false;
+  }
+  return SealPrepared(doc, value, opts.digest, out);
 }
 
 }  // namespace
@@ -1423,4 +1431,545 @@ TEST_F(EPDFSignatureEmbedderTest, ProbeSeedValueVersionAndApprovalOnly) {
   EXPECT_EQ(2, EPDFSig_GetDocMDPPermission(m, 0));
   EXPECT_TRUE(EPDFSig_IsCatalogCertification(m, 0));
   EPDFSig_CloseModel(m);
+}
+
+// ---------------------------------------------------------------------------
+// Layer documents. A layer's own parser is the base parser and its delta
+// objects are in-memory clones; the bytes it was loaded from are base +
+// delta. Revision analysis must read exactly those bytes - never the base
+// alone, never the base document's reachable-only object cache - while
+// candidate editing stays on the layer.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A memory-backed base document; the bytes must outlive it, so keep a copy.
+class ScopedBase {
+ public:
+  explicit ScopedBase(std::string bytes) : bytes_(std::move(bytes)) {
+    base_ = EPDF_LoadMemBaseDocument64(bytes_.data(), bytes_.size(), nullptr);
+  }
+  ~ScopedBase() {
+    if (base_) {
+      EPDF_ReleaseBaseDocument(base_);
+    }
+  }
+  EPDF_BASE_DOCUMENT get() const { return base_; }
+  const std::string& bytes() const { return bytes_; }
+
+ private:
+  std::string bytes_;
+  EPDF_BASE_DOCUMENT base_ = nullptr;
+};
+
+// Opens a layer over |base| with |delta| bytes. The FPDF_FILEACCESS and the
+// buffer it reads live only inside this call, on purpose: a layer keeps the
+// delta it ingested as part of its loaded bytes, so it must have copied it.
+ScopedFPDFDocument OpenLayer(EPDF_BASE_DOCUMENT base, const std::string& delta = std::string()) {
+  std::string scratch = delta;
+  FPDF_FILEACCESS access = {};
+  access.m_FileLen = static_cast<unsigned long>(scratch.size());
+  access.m_Param = &scratch;
+  access.m_GetBlock = [](void* param, unsigned long pos, unsigned char* out,
+                         unsigned long size) -> int {
+    const std::string& b = *static_cast<std::string*>(param);
+    if (pos > b.size() || size > b.size() - pos) {
+      return 0;
+    }
+    memcpy(out, b.data() + pos, size);
+    return 1;
+  };
+  EPDFLayerOpenStatus status = EPDFLayerOpenStatus_kOpenFailed;
+  ScopedFPDFDocument doc(
+      EPDFLayer_OpenLayer(base, scratch.empty() ? nullptr : &access, nullptr, &status));
+  EXPECT_EQ(EPDFLayerOpenStatus_kSuccess, status);
+  return doc;
+}
+
+std::string SaveDelta(FPDF_DOCUMENT layer) {
+  unsigned long size = 0;
+  EPDFLayerSaveStatus status = EPDFLayerSaveStatus_kSaveFailed;
+  void* raw = EPDFLayer_SaveDeltaToOwnedBuffer(layer, &size, &status);
+  EXPECT_EQ(EPDFLayerSaveStatus_kSuccess, status);
+  if (!raw) {
+    return std::string();
+  }
+  std::string delta(static_cast<char*>(raw), size);
+  EPDF_FreeBuffer(raw);
+  return delta;
+}
+
+ScopedFPDFDocument OpenBytes(const std::string& bytes) {
+  return ScopedFPDFDocument(FPDF_LoadMemDocument64(bytes.data(), bytes.size(), nullptr));
+}
+
+std::string BytesOf(const Sealed& sealed) {
+  return std::string(reinterpret_cast<const char*>(sealed.bytes.data()), sealed.bytes.size());
+}
+
+int CoverageOf(FPDF_DOCUMENT doc, int index) {
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(doc);
+  if (!model) {
+    return -1;
+  }
+  const int coverage = EPDFSig_GetCoverage(model, index);
+  EPDFSig_CloseModel(model);
+  return coverage;
+}
+
+// SHA-256 over signature |index|'s /ByteRange, as hex; empty when there is
+// no usable range.
+std::string DigestOf(FPDF_DOCUMENT doc, int index) {
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(doc);
+  if (!model) {
+    return std::string();
+  }
+  unsigned long long range[4];
+  const bool has_range = EPDFSig_GetByteRange(model, index, range);
+  EPDFSig_CloseModel(model);
+  return has_range ? HexDigest(doc, range, EPDF_DIGEST_SHA256) : std::string();
+}
+
+// Two unsigned signature fields (objects 4 and 5) and a text field (6).
+RawPdf TwoSignatureFields() {
+  std::vector<std::string> b = BasicObjects("/AcroForm<</Fields[4 0 R 5 0 R 6 0 R]>>");
+  b.push_back("<</FT/Sig /T(first)>>");
+  b.push_back("<</FT/Sig /T(second)>>");
+  b.push_back("<</FT/Tx /T(note) /V(before)>>");
+  return MakeRawPdf(b);
+}
+
+std::string NotarialFixtureBytes() {
+  const std::string path =
+      PathService::GetTestFilePath("embedpdf_two_signatures_encrypted.pdf");
+  std::vector<uint8_t> bytes = GetFileContents(path.c_str());
+  return std::string(bytes.begin(), bytes.end());
+}
+
+}  // namespace
+
+TEST_F(EPDFSignatureEmbedderTest, LayerModelReadsDoNotPromote) {
+  RawPdf p = FormObjects();
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument a = OpenLayer(base.get());
+  ScopedFPDFDocument b = OpenLayer(base.get());
+  ASSERT_TRUE(a);
+  ASSERT_TRUE(b);
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(a.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(1, EPDFSig_Count(model));
+  EXPECT_FALSE(EPDFSig_IsSigned(model, 0));
+  EXPECT_EQ(1, EPDFDoc_GetRevisionCount(a.get()));
+  // Reading promotes nothing, on either layer.
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(a.get()));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(b.get()));
+  // The model is a snapshot: it outlives the layer it was read from.
+  a.reset();
+  EXPECT_EQ(1, EPDFSig_Count(model));
+  EXPECT_EQ(L"sig", ReadFieldName(model, 0));
+  EPDFSig_CloseModel(model);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerPrepareAndSaveStayInCandidate) {
+  RawPdf p = FormObjects("/Lock<</Action/All>>");
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument candidate = OpenLayer(base.get());
+  ScopedFPDFDocument sibling = OpenLayer(base.get());
+  ASSERT_TRUE(candidate);
+  ASSERT_TRUE(sibling);
+  EPDF_SIG_PREPARE opts = DefaultPrepare();
+  const uint32_t value = EPDFSig_Prepare(candidate.get(), 6, &opts);
+  ASSERT_NE(0u, value);
+  // The lock's ReadOnly landed on the kid in the candidate only.
+  EXPECT_EQ(4097, LocalFieldFlags(candidate.get(), 5));
+  EXPECT_EQ(0, LocalFieldFlags(sibling.get(), 5));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(sibling.get()));
+  EPDF_SIGNATURE_MODEL other = EPDFSig_LoadModel(sibling.get());
+  ASSERT_TRUE(other);
+  EXPECT_FALSE(EPDFSig_IsSigned(other, 0));
+  EPDFSig_CloseModel(other);
+
+  Sealed sealed;
+  ASSERT_TRUE(SealPrepared(candidate.get(), value, opts.digest, &sealed));
+  const std::string signed_bytes = BytesOf(sealed);
+  // Saving a layer appends to the base bytes verbatim.
+  EXPECT_EQ(p.bytes, signed_bytes.substr(0, p.bytes.size()));
+  ScopedFPDFDocument signed_doc = OpenBytes(signed_bytes);
+  ASSERT_TRUE(signed_doc);
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(signed_doc.get(), 0));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(sibling.get()));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerRejectedPrepareLeavesOverlayEmpty) {
+  RawPdf p = FormObjects("/SV<</Ff 4 /V 99>>");
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument layer = OpenLayer(base.get());
+  ASSERT_TRUE(layer);
+  EPDF_SIG_PREPARE opts = DefaultPrepare();
+  EXPECT_EQ(0u, EPDFSig_Prepare(layer.get(), 6, &opts));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(layer.get()));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerFieldLockSurvivesDeltaReopen) {
+  RawPdf p = FormObjects();
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument a = OpenLayer(base.get());
+  ScopedFPDFDocument b = OpenLayer(base.get());
+  ASSERT_TRUE(a);
+  ASSERT_TRUE(b);
+  ASSERT_TRUE(EPDFSig_SetFieldLock(a.get(), 6, EPDF_SIG_FIELD_ACTION_ALL, nullptr, 0, 2));
+  const std::string delta = SaveDelta(a.get());
+  ASSERT_FALSE(delta.empty());
+  ScopedFPDFDocument reopened = OpenLayer(base.get(), delta);
+  ASSERT_TRUE(reopened);
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(reopened.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(EPDF_SIG_FIELD_ACTION_ALL, EPDFSig_GetLockAction(model, 0));
+  EXPECT_EQ(2, EPDFSig_GetLockPermission(model, 0));
+  EPDFSig_CloseModel(model);
+  model = EPDFSig_LoadModel(b.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(EPDF_SIG_FIELD_ACTION_NONE, EPDFSig_GetLockAction(model, 0));
+  EPDFSig_CloseModel(model);
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(b.get()));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerReopenedSignedDeltaReportsItsLoadedBytes) {
+  // Sign as a plain document, then replay the very same bytes as base +
+  // delta. The layer was loaded from base + delta, so it must report what
+  // the plain document reports: two revisions, WHOLE coverage, one digest.
+  RawPdf p = FormObjects();
+  ScopedFPDFDocument plain = OpenRaw(p);
+  ASSERT_TRUE(plain);
+  Sealed sealed;
+  ASSERT_TRUE(SignField(plain.get(), 6, DefaultPrepare(), &sealed));
+  const std::string signed_bytes = BytesOf(sealed);
+  ScopedFPDFDocument standalone = OpenBytes(signed_bytes);
+  ASSERT_TRUE(standalone);
+  ASSERT_EQ(2, EPDFDoc_GetRevisionCount(standalone.get()));
+  ASSERT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(standalone.get(), 0));
+
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument replay = OpenLayer(base.get(), signed_bytes.substr(p.bytes.size()));
+  ASSERT_TRUE(replay);
+  EXPECT_EQ(2, EPDFDoc_GetRevisionCount(replay.get()));
+  unsigned long long end = 0;
+  ASSERT_TRUE(EPDFDoc_GetRevision(replay.get(), 1, &end, nullptr));
+  EXPECT_EQ(signed_bytes.size(), end);
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(replay.get(), 0));
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(replay.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(1, EPDFSig_GetRevisionIndex(model, 0));
+  EPDFSig_CloseModel(model);
+  EXPECT_EQ(DigestOf(standalone.get(), 0), DigestOf(replay.get(), 0));
+  EXPECT_EQ(sealed.digest_hex, DigestOf(replay.get(), 0));
+  // The original revision opens from the layer's bytes as well.
+  ScopedFPDFDocument original(EPDFDoc_OpenRevision(replay.get(), p.bytes.size()));
+  ASSERT_TRUE(original);
+  EXPECT_EQ(1, EPDFDoc_GetRevisionCount(original.get()));
+  // The delta's objects are promoted clones; the analysis above did not
+  // read them, it read the bytes.
+  EXPECT_GT(EPDFLayer_GetPromotedObjectCount(replay.get()), 0ul);
+  // And the diff between them is the signing update, read from the bytes.
+  EPDF_OBJECT_DIFF diff = EPDFDoc_CompareRevisions(original.get(), replay.get());
+  ASSERT_TRUE(diff);
+  const std::vector<DiffRow> rows = ReadDiffRows(diff);
+  EXPECT_GT(rows.size(), 0u);
+  const int field_row = FindRow(rows, 6);
+  ASSERT_GE(field_row, 0);
+  EXPECT_EQ(EPDF_DIFF_MODIFIED, rows[field_row].change);
+  EXPECT_NE(std::string::npos, ReadDiffValue(diff, field_row, EPDF_DIFF_NEW).find("/V "));
+  EPDFObjectDiff_Close(diff);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerCompareLoadedDeltaReportsChanges) {
+  RawPdf p = FormObjects();
+  RawPdf n = AppendRawUpdate(p, 5, "<</T(total) /Parent 4 0 R /V(changed)>>", 7);
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument a = OpenLayer(base.get());
+  ScopedFPDFDocument b = OpenLayer(base.get(), n.bytes.substr(p.bytes.size()));
+  ASSERT_TRUE(a);
+  ASSERT_TRUE(b);
+  // Two layers over one base: the one with a delta has one more revision.
+  EXPECT_EQ(1, EPDFDoc_GetRevisionCount(a.get()));
+  EXPECT_EQ(2, EPDFDoc_GetRevisionCount(b.get()));
+  EPDF_OBJECT_DIFF diff = EPDFDoc_CompareRevisions(a.get(), b.get());
+  ASSERT_TRUE(diff);
+  const std::vector<DiffRow> rows = ReadDiffRows(diff);
+  // Object 5 only: the update's trailer carries the same values.
+  ASSERT_EQ(1u, rows.size());
+  EXPECT_EQ(5u, rows[0].obj_num);
+  EXPECT_EQ(EPDF_DIFF_MODIFIED, rows[0].change);
+  EXPECT_NE(std::string::npos, ReadDiffValue(diff, 0, EPDF_DIFF_OLD).find("(text)"));
+  EXPECT_NE(std::string::npos, ReadDiffValue(diff, 0, EPDF_DIFF_NEW).find("(changed)"));
+  EPDFObjectDiff_Close(diff);
+  // The layered comparison equals the plain one over the same bytes.
+  ScopedFPDFDocument older = OpenRaw(p);
+  ScopedFPDFDocument newer = OpenRaw(n);
+  EPDF_OBJECT_DIFF plain = EPDFDoc_CompareRevisions(older.get(), newer.get());
+  ASSERT_TRUE(plain);
+  const std::vector<DiffRow> plain_rows = ReadDiffRows(plain);
+  ASSERT_EQ(rows.size(), plain_rows.size());
+  EPDFObjectDiff_Close(plain);
+  // Two fresh layers over one base are the same revision: an empty diff.
+  ScopedFPDFDocument c = OpenLayer(base.get());
+  diff = EPDFDoc_CompareRevisions(a.get(), c.get());
+  ASSERT_TRUE(diff);
+  EXPECT_EQ(0, EPDFObjectDiff_GetCount(diff));
+  EPDFObjectDiff_Close(diff);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerFreshBaseDiffKeepsUnreachableObjectValues) {
+  // Object 4 is referenced by nothing; a base document's cache holds
+  // reachable objects only. Values come from the bytes, so the layered diff
+  // reports the same value as the plain one.
+  std::vector<std::string> b = BasicObjects();
+  b.push_back("(before)");
+  RawPdf p = MakeRawPdf(b);
+  RawPdf n = AppendRawUpdate(p, 4, "(after)", 5);
+  ScopedBase base(n.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument layer = OpenLayer(base.get());
+  ScopedFPDFDocument older = OpenRaw(p);
+  ScopedFPDFDocument newer = OpenRaw(n);
+  ASSERT_TRUE(layer);
+  ASSERT_TRUE(older);
+  ASSERT_TRUE(newer);
+  EPDF_OBJECT_DIFF plain = EPDFDoc_CompareRevisions(older.get(), newer.get());
+  EPDF_OBJECT_DIFF layered = EPDFDoc_CompareRevisions(older.get(), layer.get());
+  ASSERT_TRUE(plain);
+  ASSERT_TRUE(layered);
+  const std::vector<DiffRow> plain_rows = ReadDiffRows(plain);
+  const std::vector<DiffRow> layered_rows = ReadDiffRows(layered);
+  const int plain_row = FindRow(plain_rows, 4);
+  const int layered_row = FindRow(layered_rows, 4);
+  ASSERT_GE(plain_row, 0);
+  ASSERT_GE(layered_row, 0);
+  EXPECT_EQ("(after)", ReadDiffValue(plain, plain_row, EPDF_DIFF_NEW));
+  EXPECT_EQ(ReadDiffValue(plain, plain_row, EPDF_DIFF_NEW),
+            ReadDiffValue(layered, layered_row, EPDF_DIFF_NEW));
+  EXPECT_EQ("(before)", ReadDiffValue(layered, layered_row, EPDF_DIFF_OLD));
+  EPDFObjectDiff_Close(plain);
+  EPDFObjectDiff_Close(layered);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, PlainDiffValuesComeFromBytesNotCache) {
+  // An unsaved in-memory edit is not part of any revision: the diff keeps
+  // reporting the value the bytes hold.
+  std::vector<std::string> b = BasicObjects();
+  b.push_back("<</K(before)>>");
+  RawPdf p = MakeRawPdf(b);
+  RawPdf n = AppendRawUpdate(p, 4, "<</K(after)>>", 5);
+  ScopedFPDFDocument newer = OpenRaw(n);
+  ASSERT_TRUE(newer);
+  ScopedFPDFDocument older(EPDFDoc_OpenRevision(newer.get(), p.bytes.size()));
+  ASSERT_TRUE(older);
+  {
+    CPDF_Document* native = CPDFDocumentFromFPDFDocument(newer.get());
+    RetainPtr<CPDF_Dictionary> dict = ToDictionary(native->GetMutableIndirectObject(4));
+    ASSERT_TRUE(dict);
+    dict->SetNewFor<CPDF_String>("K", "edited");
+  }
+  EPDF_OBJECT_DIFF diff = EPDFDoc_CompareRevisions(older.get(), newer.get());
+  ASSERT_TRUE(diff);
+  const std::vector<DiffRow> rows = ReadDiffRows(diff);
+  const int row = FindRow(rows, 4);
+  ASSERT_GE(row, 0);
+  EXPECT_EQ("<</K (after)>>", ReadDiffValue(diff, row, EPDF_DIFF_NEW));
+  EXPECT_EQ("<</K (before)>>", ReadDiffValue(diff, row, EPDF_DIFF_OLD));
+  EPDFObjectDiff_Close(diff);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerFinalizedBytesAsNewBasePreserveConsecutiveSignatures) {
+  RawPdf p = TwoSignatureFields();
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument first_candidate = OpenLayer(base.get());
+  ASSERT_TRUE(first_candidate);
+  Sealed first;
+  ASSERT_TRUE(SignField(first_candidate.get(), 4, DefaultPrepare(), &first));
+  const std::string first_bytes = BytesOf(first);
+
+  // Completion: the signed bytes become a new immutable base.
+  ScopedBase signed_base(first_bytes);
+  ASSERT_TRUE(signed_base.get());
+  ScopedFPDFDocument next = OpenLayer(signed_base.get());
+  ASSERT_TRUE(next);
+  ASSERT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(next.get(), 0));
+  const std::string digest = DigestOf(next.get(), 0);
+  ASSERT_FALSE(digest.empty());
+  EXPECT_EQ(first.digest_hex, digest);
+  Sealed second;
+  ASSERT_TRUE(SignField(next.get(), 5, DefaultPrepare(), &second));
+  const std::string second_bytes = BytesOf(second);
+  EXPECT_EQ(first_bytes, second_bytes.substr(0, first_bytes.size()));
+
+  ScopedFPDFDocument reopened = OpenBytes(second_bytes);
+  ASSERT_TRUE(reopened);
+  EXPECT_EQ(3, EPDFDoc_GetRevisionCount(reopened.get()));
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(reopened.get(), 0));
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(reopened.get(), 1));
+  EXPECT_EQ(digest, DigestOf(reopened.get(), 0));
+  EXPECT_EQ(second.digest_hex, DigestOf(reopened.get(), 1));
+
+  // The historic revision opens from the layer, and the diff is real.
+  ScopedFPDFDocument historic(EPDFDoc_OpenRevision(next.get(), p.bytes.size()));
+  ASSERT_TRUE(historic);
+  EPDF_OBJECT_DIFF diff = EPDFDoc_CompareRevisions(historic.get(), next.get());
+  ASSERT_TRUE(diff);
+  EXPECT_GT(EPDFObjectDiff_GetCount(diff), 0);
+  EPDFObjectDiff_Close(diff);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerPrepareRefusesSignedBytesInLoadedDelta) {
+  // A layer whose loaded delta carries the signed bytes cannot take another
+  // signature: saving it would append to the BASE and rewrite the delta,
+  // dropping what the first signature sealed. The same bytes as a base, or
+  // a delta holding only unsigned edits over a signed base, are fine.
+  RawPdf p = TwoSignatureFields();
+  ScopedFPDFDocument plain = OpenRaw(p);
+  ASSERT_TRUE(plain);
+  Sealed first;
+  ASSERT_TRUE(SignField(plain.get(), 4, DefaultPrepare(), &first));
+  const std::string signed_bytes = BytesOf(first);
+
+  ScopedBase unsigned_base(p.bytes);
+  ASSERT_TRUE(unsigned_base.get());
+  ScopedFPDFDocument signed_delta_layer =
+      OpenLayer(unsigned_base.get(), signed_bytes.substr(p.bytes.size()));
+  ASSERT_TRUE(signed_delta_layer);
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(signed_delta_layer.get(), 0));
+  EPDF_SIG_PREPARE opts = DefaultPrepare();
+  EXPECT_EQ(0u, EPDFSig_Prepare(signed_delta_layer.get(), 5, &opts));
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(signed_delta_layer.get(), 0));
+
+  ScopedBase signed_base(signed_bytes);
+  ASSERT_TRUE(signed_base.get());
+  ScopedFPDFDocument editing = OpenLayer(signed_base.get());
+  ASSERT_TRUE(editing);
+  // A lock is authoring-time only: after a signature it would be a change
+  // to a field dictionary that the first signature does not permit.
+  EXPECT_FALSE(EPDFSig_SetFieldLock(editing.get(), 5, EPDF_SIG_FIELD_ACTION_ALL, nullptr, 0, 0));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(editing.get()));
+  // Filling a text field is a permitted change: an unsigned delta.
+  ScopedFPDFWideString after = GetFPDFWideString(L"after");
+  ASSERT_TRUE(EPDFForm_SetTextValue(editing.get(), 6, after.get(), nullptr, 0, nullptr));
+  const std::string edits = SaveDelta(editing.get());
+  ASSERT_FALSE(edits.empty());
+  ScopedFPDFDocument unsigned_delta_layer = OpenLayer(signed_base.get(), edits);
+  ASSERT_TRUE(unsigned_delta_layer);
+  // Original + signing update + the delta's edits.
+  EXPECT_EQ(3, EPDFDoc_GetRevisionCount(unsigned_delta_layer.get()));
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(unsigned_delta_layer.get(), 0));
+  Sealed second;
+  ASSERT_TRUE(SignField(unsigned_delta_layer.get(), 5, opts, &second));
+  const std::string second_bytes = BytesOf(second);
+  EXPECT_EQ(signed_bytes, second_bytes.substr(0, signed_bytes.size()));
+  ScopedFPDFDocument reopened = OpenBytes(second_bytes);
+  ASSERT_TRUE(reopened);
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(reopened.get(), 0));
+  EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, CoverageOf(reopened.get(), 1));
+  EXPECT_EQ(first.digest_hex, DigestOf(reopened.get(), 0));
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerPromotedAncestorIsUsedForSignatureFieldIdentity) {
+  std::vector<std::string> b = BasicObjects("/AcroForm<</Fields[4 0 R]>>");
+  b.push_back("<</T(group) /Kids[5 0 R]>>");
+  b.push_back("<</T(sig) /FT/Sig /Parent 4 0 R>>");
+  RawPdf p = MakeRawPdf(b);
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument a = OpenLayer(base.get());
+  ScopedFPDFDocument sibling = OpenLayer(base.get());
+  ASSERT_TRUE(a);
+  ASSERT_TRUE(sibling);
+  ScopedFPDFWideString renamed = GetFPDFWideString(L"renamed");
+  ASSERT_TRUE(EPDFForm_SetFieldName(a.get(), 4, renamed.get()));
+  const unsigned long promoted = EPDFLayer_GetPromotedObjectCount(a.get());
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(a.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(L"renamed.sig", ReadFieldName(model, 0));
+  EXPECT_EQ(promoted, EPDFLayer_GetPromotedObjectCount(a.get()));
+  EPDFSig_CloseModel(model);
+  EPDF_SIG_PREPARE opts = DefaultPrepare();
+  ASSERT_NE(0u, EPDFSig_Prepare(a.get(), 5, &opts));
+  model = EPDFSig_LoadModel(sibling.get());
+  ASSERT_TRUE(model);
+  EXPECT_FALSE(EPDFSig_IsSigned(model, 0));
+  EXPECT_EQ(L"group.sig", ReadFieldName(model, 0));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(sibling.get()));
+  EPDFSig_CloseModel(model);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerEncryptedBaseModelMatchesOrdinaryDocument) {
+  const std::string bytes = NotarialFixtureBytes();
+  if (bytes.empty()) {
+    GTEST_SKIP() << "fixture not available";
+  }
+  ScopedBase base(bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument layer = OpenLayer(base.get());
+  ScopedFPDFDocument plain = OpenBytes(bytes);
+  ASSERT_TRUE(layer);
+  ASSERT_TRUE(plain);
+  EPDF_SIGNATURE_MODEL from_layer = EPDFSig_LoadModel(layer.get());
+  EPDF_SIGNATURE_MODEL from_plain = EPDFSig_LoadModel(plain.get());
+  ASSERT_TRUE(from_layer);
+  ASSERT_TRUE(from_plain);
+  EXPECT_EQ(EPDFSig_Count(from_plain), EPDFSig_Count(from_layer));
+  EXPECT_EQ(4, EPDFDoc_GetRevisionCount(layer.get()));
+  EXPECT_EQ(EPDFDoc_GetRevisionCount(plain.get()), EPDFDoc_GetRevisionCount(layer.get()));
+  for (int i = 0; i < EPDFSig_Count(from_layer); ++i) {
+    EXPECT_EQ(EPDFSig_GetCoverage(from_plain, i), EPDFSig_GetCoverage(from_layer, i));
+    EXPECT_EQ(EPDFSig_GetRevisionIndex(from_plain, i), EPDFSig_GetRevisionIndex(from_layer, i));
+    EXPECT_EQ(DigestOf(plain.get(), i), DigestOf(layer.get(), i));
+  }
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(layer.get()));
+  EPDFSig_CloseModel(from_layer);
+  EPDFSig_CloseModel(from_plain);
+}
+
+TEST_F(EPDFSignatureEmbedderTest, LayerEncryptedSigningPreservesExistingSignatures) {
+  const std::string bytes = NotarialFixtureBytes();
+  if (bytes.empty()) {
+    GTEST_SKIP() << "fixture not available";
+  }
+  ScopedBase base(bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument candidate = OpenLayer(base.get());
+  ScopedFPDFDocument sibling = OpenLayer(base.get());
+  ASSERT_TRUE(candidate);
+  ASSERT_TRUE(sibling);
+  const std::string first = DigestOf(candidate.get(), 0);
+  const std::string second = DigestOf(candidate.get(), 1);
+  ASSERT_FALSE(first.empty());
+  ASSERT_FALSE(second.empty());
+  ScopedFPDFWideString name = GetFPDFWideString(L"third");
+  const uint32_t field =
+      EPDFForm_CreateField(candidate.get(), EPDF_FORMFIELD_FAMILY_SIGNATURE, name.get());
+  ASSERT_NE(0u, field);
+  EPDF_SIG_PREPARE opts = DefaultPrepare();
+  opts.subfilter = EPDF_SIG_SUBFILTER_ADBE_PKCS7_DETACHED;
+  Sealed sealed;
+  ASSERT_TRUE(SignField(candidate.get(), field, opts, &sealed));
+  const std::string signed_bytes = BytesOf(sealed);
+  EXPECT_EQ(bytes, signed_bytes.substr(0, bytes.size()));
+  ScopedFPDFDocument signed_doc = OpenBytes(signed_bytes);
+  ASSERT_TRUE(signed_doc);
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(signed_doc.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(3, EPDFSig_Count(model));
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_EQ(EPDF_SIG_COVERAGE_WHOLE_REVISION, EPDFSig_GetCoverage(model, i)) << i;
+  }
+  EPDFSig_CloseModel(model);
+  EXPECT_EQ(first, DigestOf(signed_doc.get(), 0));
+  EXPECT_EQ(second, DigestOf(signed_doc.get(), 1));
+  EXPECT_EQ(0ul, EPDFLayer_GetPromotedObjectCount(sibling.get()));
 }

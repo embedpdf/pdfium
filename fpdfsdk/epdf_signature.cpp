@@ -24,8 +24,10 @@
 #include "core/fdrm/fx_crypt_sha.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_base_document.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_layer_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
@@ -50,6 +52,7 @@
 #include "core/fxcrt/widestring.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/epdf_form_helpers.h"
+#include "fpdfsdk/epdf_revision_view.h"
 #include "public/fpdf_save.h"
 
 namespace {
@@ -966,6 +969,7 @@ void ReadStringInto(const CPDF_Dictionary* dict,
 SignatureRecord SnapshotSignature(
     CPDF_Document* doc,
     IFX_SeekableReadStream* file,
+    CPDF_Parser* parser,
     const std::optional<std::vector<RevisionInfo>>& revisions,
     CPDF_FormField* field,
     const std::map<const CPDF_Dictionary*, uint32_t>& widget_pages) {
@@ -1037,8 +1041,7 @@ SignatureRecord SnapshotSignature(
     record.has_byte_range = ok;
   }
   const ByteString contents = contents_obj->GetString();
-  ComputeCoverage(file, doc->GetParser(), revisions, contents.unsigned_span(),
-                  &record);
+  ComputeCoverage(file, parser, revisions, contents.unsigned_span(), &record);
   return record;
 }
 
@@ -1185,11 +1188,12 @@ bool HashRange(IFX_SeekableReadStream* file,
 FPDF_EXPORT int FPDF_CALLCONV
 EPDFDoc_GetRevisionCount(FPDF_DOCUMENT document) {
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  if (!view) {
     return -1;
   }
   std::optional<std::vector<RevisionInfo>> revisions =
-      ComputeRevisions(doc->GetParser());
+      ComputeRevisions(view->parser());
   return revisions.has_value() ? fxcrt::CollectionSize<int>(*revisions) : -1;
 }
 
@@ -1205,11 +1209,12 @@ EPDFDoc_GetRevision(FPDF_DOCUMENT document,
     *out_xref_offset = 0;
   }
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  if (!view) {
     return false;
   }
   std::optional<std::vector<RevisionInfo>> revisions =
-      ComputeRevisions(doc->GetParser());
+      ComputeRevisions(view->parser());
   if (!revisions.has_value() || index < 0 ||
       index >= fxcrt::CollectionSize<int>(*revisions)) {
     return false;
@@ -1227,10 +1232,11 @@ EPDFDoc_GetRevision(FPDF_DOCUMENT document,
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 EPDFDoc_OpenRevision(FPDF_DOCUMENT document, unsigned long long end) {
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  if (!doc) {
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  if (!view) {
     return nullptr;
   }
-  CPDF_Parser* parser = doc->GetParser();
+  CPDF_Parser* parser = view->parser();
   std::optional<std::vector<RevisionInfo>> revisions = ComputeRevisions(parser);
   if (!revisions.has_value()) {
     return nullptr;
@@ -1270,11 +1276,13 @@ namespace {
 std::unique_ptr<SignatureModel> BuildModel(CPDF_Document* doc) {
   auto model = std::make_unique<SignatureModel>();
 
-  CPDF_Parser* parser = doc->GetParser();
+  // Identity, locks and seed values come from the document as it is; the
+  // byte facts (revisions, coverage) from the bytes it was loaded from.
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  CPDF_Parser* parser = view ? view->parser() : nullptr;
   std::optional<std::vector<RevisionInfo>> revisions = ComputeRevisions(parser);
   model->chain_valid = revisions.has_value();
-  RetainPtr<IFX_SeekableReadStream> file =
-      parser ? parser->GetFileAccess() : nullptr;
+  RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
 
   auto form = std::make_unique<CPDF_InteractiveForm>(doc);
   const std::map<const CPDF_Dictionary*, uint32_t> widget_pages =
@@ -1285,8 +1293,8 @@ std::unique_ptr<SignatureModel> BuildModel(CPDF_Document* doc) {
     if (!field || field->GetType() != CPDF_FormField::kSign) {
       continue;
     }
-    SignatureRecord record =
-        SnapshotSignature(doc, file.Get(), revisions, field, widget_pages);
+    SignatureRecord record = SnapshotSignature(doc, file.Get(), parser,
+                                               revisions, field, widget_pages);
     if (record.field_objnum != 0) {
       model->index_by_field_objnum[record.field_objnum] =
           fxcrt::CollectionSize<int>(model->records);
@@ -1575,9 +1583,8 @@ EPDFSig_DigestByteRange(FPDF_DOCUMENT document,
     return false;
   }
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  CPDF_Parser* parser = doc ? doc->GetParser() : nullptr;
-  RetainPtr<IFX_SeekableReadStream> file =
-      parser ? parser->GetFileAccess() : nullptr;
+  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
   if (!file) {
     return false;
   }
@@ -1893,6 +1900,22 @@ EPDFSig_Prepare(FPDF_DOCUMENT candidate,
   if (record.is_signed || record.value_objnum != 0) {
     return 0;
   }
+  // Saving a layer candidate appends an update to its BASE bytes and
+  // rewrites the layer's objects into it; signed bytes that live in the
+  // layer's loaded delta would not survive that. They must become a base
+  // (the completion flow's seal) before another signature can follow.
+  if (const CPDF_LayerDocument* layer = CPDF_LayerDocument::FromDocument(doc)) {
+    if (layer->GetLoadedDeltaStream()) {
+      const uint64_t base_size =
+          static_cast<uint64_t>(layer->GetBaseDocument()->GetRawBaseSize());
+      for (const SignatureRecord& other : model->records) {
+        if (other.is_signed && other.has_byte_range &&
+            other.byte_range[2] + other.byte_range[3] > base_size) {
+          return 0;
+        }
+      }
+    }
+  }
   RetainPtr<const CPDF_Dictionary> field =
       epdf::ResolveFieldDict(doc, field_objnum);
   if (!field) {
@@ -2126,6 +2149,12 @@ EPDFSig_SetFieldLock(FPDF_DOCUMENT document,
             : nullptr;
   if (!ft || ft->GetString() != pdfium::form_fields::kSig ||
       field->KeyExist(pdfium::form_fields::kV)) {
+    return false;
+  }
+  // Authoring time only. Once any signature is in place, adding or removing
+  // a /Lock is a change to a field dictionary that no earlier signature
+  // permits: strict validators flag it as an illegitimate modification.
+  if (AnySigned(*BuildModel(doc))) {
     return false;
   }
   RetainPtr<CPDF_Dictionary> mutable_field =

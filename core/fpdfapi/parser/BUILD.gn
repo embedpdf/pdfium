@@ -59,6 +59,8 @@ source_set("parser") {
     "cpdf_object_walker.h",
     "cpdf_page_object_avail.cpp",
     "cpdf_page_object_avail.h",
+    "cpdf_parse_only_holder.cpp",
+    "cpdf_parse_only_holder.h",
     "cpdf_parser.cpp",
     "cpdf_parser.h",
     "cpdf_read_only_graph_guard.cpp",

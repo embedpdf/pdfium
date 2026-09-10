@@ -27,6 +27,10 @@ source_set("fpdfsdk") {
     "epdf_signature.cpp",
     # EmbedPDF: digital signatures - the cross-revision object diff.
     "epdf_revision_diff.cpp",
+    # EmbedPDF: digital signatures - the immutable loaded-bytes view that
+    # revision analysis reads (a layer's base + ingested delta).
+    "epdf_revision_view.cpp",
+    "epdf_revision_view.h",
     # EmbedPDF: the reconciled-form lens shared by the form and signature models.
     "epdf_form_helpers.cpp",
     "epdf_form_helpers.h",

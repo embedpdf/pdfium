@@ -363,9 +363,19 @@ EPDFLayer_OpenLayer(EPDF_BASE_DOCUMENT base,
   // already complete when the base is loaded.
   (void)password;
 
-  RetainPtr<IFX_SeekableReadStream> delta_stream =
-      pFileAccess ? pdfium::MakeRetain<CPDFSDK_CustomAccess>(pFileAccess)
-                  : nullptr;
+  // The layer retains the delta it ingests as part of its loaded bytes, and
+  // |pFileAccess| is only promised for the duration of this call: copy it.
+  RetainPtr<IFX_SeekableReadStream> delta_stream;
+  if (pFileAccess && pFileAccess->m_FileLen > 0) {
+    auto caller_stream = pdfium::MakeRetain<CPDFSDK_CustomAccess>(pFileAccess);
+    DataVector<uint8_t> delta = ReadStreamToVector(caller_stream.Get());
+    if (delta.empty()) {
+      SetOpenStatus(out_status, EPDFLayerOpenStatus_kOpenFailed);
+      return nullptr;
+    }
+    delta_stream =
+        pdfium::MakeRetain<OwnedReadOnlyMemoryStream>(std::move(delta));
+  }
   return OpenLayerWithDeltaStream(base, std::move(delta_stream), out_status);
 }
 

@@ -13,31 +13,14 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document_view_scope.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
+#include "core/fpdfapi/parser/cpdf_parse_only_holder.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
 #include "core/fpdfapi/render/cpdf_docrenderdata.h"
 #include "core/fxcrt/check.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/notreached.h"
-#include "core/fxcrt/unowned_ptr.h"
 
 namespace {
-
-class DeltaParseObjectHolder final : public CPDF_Parser::ParsedObjectsHolder {
- public:
-  DeltaParseObjectHolder() = default;
-  ~DeltaParseObjectHolder() override = default;
-
-  void SetParser(CPDF_Parser* parser) { parser_ = parser; }
-  bool TryInit() override { return true; }
-
- protected:
-  RetainPtr<CPDF_Object> ParseIndirectObject(uint32_t objnum) override {
-    return parser_ ? parser_->ParseIndirectObject(objnum) : nullptr;
-  }
-
- private:
-  UnownedPtr<CPDF_Parser> parser_;
-};
 
 bool IsBaseObjectLive(const CPDF_Parser* base_parser, uint32_t objnum) {
   return objnum != 0 && base_parser->IsValidObjectNumber(objnum) &&
@@ -333,7 +316,7 @@ void CPDF_LayerDocument::IngestCurrentDelta() {
 
   const FX_FILESIZE layer_append_base_offset =
       base_->GetLayerAppendBaseOffset();
-  DeltaParseObjectHolder temp_holder;
+  CPDF_ParseOnlyHolder temp_holder;
   CPDF_Parser parser(&temp_holder);
   temp_holder.SetParser(&parser);
   CPDF_Parser::Error parse_error =
@@ -412,6 +395,9 @@ void CPDF_LayerDocument::IngestCurrentDelta() {
     FailDeltaIngest(OpenStatus::kMalformedDelta);
     return;
   }
+  // The delta is now part of this layer's loaded bytes: keep it, so revision
+  // analysis can read base + delta exactly as they were given.
+  loaded_delta_ = std::move(file_access_);
   file_access_.Reset();
 }
 

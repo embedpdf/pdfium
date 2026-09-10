@@ -27,6 +27,12 @@ extern "C" {
 //
 // Everything here reads the bytes the document was loaded from. Unsaved
 // in-memory mutations are invisible to it by design.
+//
+// Layer documents (EPDFLayer_OpenLayer) were loaded from their base file
+// followed by the delta they were opened with, and that is what every
+// function here reads for them - never the base alone, never the layer's
+// in-memory objects. A layer opened over a signed base plus the update that
+// signed it reports exactly what the same bytes report as a plain document.
 // ---------------------------------------------------------------------------
 
 // Experimental EmbedPDF Extension API.
@@ -357,7 +363,10 @@ typedef const struct epdf_object_diff_t__* EPDF_OBJECT_DIFF;
 // pass through older's final section, or older's bytes are not the prefix
 // of newer's file - both are checked). Close with
 // EPDFObjectDiff_Close(). Both documents must stay open while the diff is
-// being built; the result is detached afterwards.
+// being built; the result is detached afterwards. Values and referrers are
+// parsed from each side's loaded bytes, not taken from its object cache: an
+// unsaved edit is not part of a revision, and a layer's base-only cache is
+// not the layer's bytes.
 FPDF_EXPORT EPDF_OBJECT_DIFF FPDF_CALLCONV
 EPDFDoc_CompareRevisions(FPDF_DOCUMENT older, FPDF_DOCUMENT newer);
 
@@ -481,6 +490,11 @@ typedef struct EPDF_SIG_PREPARE {
 // then-apply: returns 0 and leaves the document untouched when
 //   - the field is not /FT /Sig, is already signed, or is ReadOnly;
 //   - an earlier signature's FieldMDP or /Lock locks this field;
+//   - |candidate| is a layer whose loaded delta already holds signed bytes
+//     (a signature whose /ByteRange reaches past the base): saving a layer
+//     appends to its BASE and rewrites the layer's objects, which would
+//     drop those bytes. Seal them into a new base first (the completion
+//     flow), then sign again on a layer over that base;
 //   - the field carries a /Lock and the request's fieldmdp_action, fields,
 //     or lock_permission disagree with it (leave them at NONE / 0 and the
 //     lock is applied as is, as ISO 32000 requires);
@@ -517,7 +531,10 @@ EPDFSig_Prepare(FPDF_DOCUMENT candidate,
 // Experimental EmbedPDF Extension API.
 // Authoring time, before any signature: write /Lock on an unsigned
 // signature field (/Action, /Fields for Include/Exclude, /P when
-// |permission| is 1..3). Action NONE removes the lock.
+// |permission| is 1..3). Action NONE removes the lock. Refused once any
+// signature field in the document is signed: a lock written after signing
+// changes a field dictionary in a way no earlier signature permits, and
+// strict validators (pyHanko among them) reject the revision for it.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFSig_SetFieldLock(FPDF_DOCUMENT document,
                      uint32_t field_objnum,

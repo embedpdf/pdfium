@@ -50,6 +50,7 @@
 #include "core/fxcrt/stl_util.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
+#include "fpdfsdk/epdf_revision_view.h"
 #include "public/epdf_signature.h"
 
 namespace {
@@ -137,10 +138,11 @@ bool SameMapping(const ObjectInfo& a, const ObjectInfo& b) {
   return true;
 }
 
-// Members of the object stream |obj_num| holds in |doc|, if it is one.
-std::vector<uint32_t> ObjectStreamMembers(CPDF_Document* doc, uint32_t obj_num) {
+// Members of the object stream |obj_num| holds in |view|, if it is one.
+std::vector<uint32_t> ObjectStreamMembers(const epdf::RevisionView* view,
+                                          uint32_t obj_num) {
   std::vector<uint32_t> members;
-  RetainPtr<const CPDF_Object> obj = doc->GetOrParseIndirectObject(obj_num);
+  RetainPtr<const CPDF_Object> obj = view->ParseObject(obj_num);
   RetainPtr<const CPDF_Stream> stream = obj ? ToStream(obj) : nullptr;
   if (!stream || stream->GetDict()->GetNameFor("Type") != "ObjStm") {
     return members;
@@ -370,8 +372,8 @@ int KindOf(const CPDF_Object* obj) {
 // reference of every reachable object.
 class ReferrerIndexBuilder {
  public:
-  ReferrerIndexBuilder(CPDF_Document* doc, ReferrerIndex* out)
-      : doc_(doc), out_(out) {}
+  ReferrerIndexBuilder(const epdf::RevisionView* view, ReferrerIndex* out)
+      : view_(view), out_(out) {}
 
   void Build(const CPDF_Dictionary* trailer) {
     std::vector<uint32_t> queue;
@@ -380,7 +382,7 @@ class ReferrerIndexBuilder {
     while (!queue.empty()) {
       const uint32_t obj_num = queue.back();
       queue.pop_back();
-      RetainPtr<const CPDF_Object> obj = doc_->GetOrParseIndirectObject(obj_num);
+      RetainPtr<const CPDF_Object> obj = view_->ParseObject(obj_num);
       if (!obj) {
         continue;
       }
@@ -444,7 +446,7 @@ class ReferrerIndexBuilder {
     return prefix.IsEmpty() ? part : prefix + "/" + part;
   }
 
-  UnownedPtr<CPDF_Document> const doc_;
+  UnownedPtr<const epdf::RevisionView> const view_;
   UnownedPtr<ReferrerIndex> const out_;
 };
 
@@ -462,10 +464,18 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
   if (!older || !newer || older == newer) {
     return nullptr;
   }
-  CPDF_Parser* older_parser = older->GetParser();
-  CPDF_Parser* newer_parser = newer->GetParser();
-  if (!older_parser || !newer_parser || older_parser->xref_table_rebuilt() ||
-      newer_parser->xref_table_rebuilt() ||
+  // Both sides are read from the bytes they were loaded from - for a layer,
+  // base + ingested delta - never from a document's in-memory objects.
+  std::unique_ptr<epdf::RevisionView> older_view =
+      epdf::RevisionView::Create(older);
+  std::unique_ptr<epdf::RevisionView> newer_view =
+      epdf::RevisionView::Create(newer);
+  if (!older_view || !newer_view) {
+    return nullptr;
+  }
+  CPDF_Parser* older_parser = older_view->parser();
+  CPDF_Parser* newer_parser = newer_view->parser();
+  if (older_parser->xref_table_rebuilt() || newer_parser->xref_table_rebuilt() ||
       !ShareByteHistory(older_parser, newer_parser)) {
     return nullptr;
   }
@@ -503,10 +513,11 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
   for (const auto& [num, change] : container_seeds) {
     std::vector<uint32_t> members;
     if (change != EPDF_DIFF_FREED) {
-      members = ObjectStreamMembers(newer, num);
+      members = ObjectStreamMembers(newer_view.get(), num);
     }
     if (change != EPDF_DIFF_ADDED) {
-      std::vector<uint32_t> old_members = ObjectStreamMembers(older, num);
+      std::vector<uint32_t> old_members =
+          ObjectStreamMembers(older_view.get(), num);
       members.insert(members.end(), old_members.begin(), old_members.end());
     }
     for (uint32_t member : members) {
@@ -534,9 +545,9 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
   // identical-rewrite rule with evidence.
   RetainPtr<CPDF_Dictionary> older_trailer = older_parser->GetCombinedTrailer();
   RetainPtr<CPDF_Dictionary> newer_trailer = newer_parser->GetCombinedTrailer();
-  ReferrerIndexBuilder(older, &result->referrers[EPDF_DIFF_OLD])
+  ReferrerIndexBuilder(older_view.get(), &result->referrers[EPDF_DIFF_OLD])
       .Build(older_trailer.Get());
-  ReferrerIndexBuilder(newer, &result->referrers[EPDF_DIFF_NEW])
+  ReferrerIndexBuilder(newer_view.get(), &result->referrers[EPDF_DIFF_NEW])
       .Build(newer_trailer.Get());
 
   for (const auto& [num, change] : touched) {
@@ -546,10 +557,10 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
     RetainPtr<const CPDF_Object> old_obj;
     RetainPtr<const CPDF_Object> new_obj;
     if (change != EPDF_DIFF_ADDED) {
-      old_obj = older->GetOrParseIndirectObject(num);
+      old_obj = older_view->ParseObject(num);
     }
     if (change != EPDF_DIFF_FREED) {
-      new_obj = newer->GetOrParseIndirectObject(num);
+      new_obj = newer_view->ParseObject(num);
     }
     // Absent objects (a live mapping that does not parse) count as null.
     entry.kind = KindOf(new_obj ? new_obj.Get() : old_obj.Get());
