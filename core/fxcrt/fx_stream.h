@@ -55,6 +55,14 @@ class IFX_SeekableReadStream : virtual public Retainable,
   virtual FX_FILESIZE GetPosition();
   [[nodiscard]] virtual bool ReadBlockAtOffset(pdfium::span<uint8_t> buffer,
                                                FX_FILESIZE offset) = 0;
+
+  // EmbedPDF: the stream whose bytes this one presents, for identity
+  // comparisons. A view that narrows another stream without changing any
+  // byte at any offset (a length clamp) returns the stream it wraps; every
+  // other stream, composites included, returns itself. Two streams with
+  // the same underlying stream hold the same immutable bytes at the same
+  // offsets over their common length.
+  virtual IFX_SeekableReadStream* GetUnderlyingStream() { return this; }
 };
 
 class IFX_SeekableStream : public IFX_SeekableReadStream,

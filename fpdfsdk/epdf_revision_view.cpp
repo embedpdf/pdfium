@@ -20,6 +20,24 @@ RevisionView::RevisionView() = default;
 RevisionView::~RevisionView() = default;
 
 // static
+RevisionView* RevisionView::For(CPDF_Document* document) {
+  if (!document) {
+    return nullptr;
+  }
+  if (RevisionView* cached =
+          static_cast<RevisionView*>(document->epdf_attachment())) {
+    return cached;
+  }
+  std::unique_ptr<RevisionView> view = Create(document);
+  if (!view) {
+    return nullptr;
+  }
+  RevisionView* raw = view.get();
+  document->SetEpdfAttachment(std::move(view));
+  return raw;
+}
+
+// static
 std::unique_ptr<RevisionView> RevisionView::Create(CPDF_Document* document) {
   CPDF_Parser* own_parser = document ? document->GetParser() : nullptr;
   if (!own_parser) {

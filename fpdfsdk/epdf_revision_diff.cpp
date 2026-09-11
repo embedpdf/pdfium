@@ -190,6 +190,13 @@ bool ShareByteHistory(CPDF_Parser* older, CPDF_Parser* newer) {
   if (older_size <= 0 || older_size > newer_file->GetSize()) {
     return false;
   }
+  // Two clamps of one immutable stream (two prefixes of the same document's
+  // bytes, the analyzer's case) are byte-identical over their common length
+  // by construction: identity proves it, no compare needed. Streams that
+  // merely name the same file are distinct objects and take the slow path.
+  if (older_file->GetUnderlyingStream() == newer_file->GetUnderlyingStream()) {
+    return true;
+  }
   static constexpr size_t kChunk = 64 * 1024;
   DataVector<uint8_t> a(kChunk);
   DataVector<uint8_t> b(kChunk);
@@ -466,10 +473,8 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
   }
   // Both sides are read from the bytes they were loaded from - for a layer,
   // base + ingested delta - never from a document's in-memory objects.
-  std::unique_ptr<epdf::RevisionView> older_view =
-      epdf::RevisionView::Create(older);
-  std::unique_ptr<epdf::RevisionView> newer_view =
-      epdf::RevisionView::Create(newer);
+  epdf::RevisionView* older_view = epdf::RevisionView::For(older);
+  epdf::RevisionView* newer_view = epdf::RevisionView::For(newer);
   if (!older_view || !newer_view) {
     return nullptr;
   }
@@ -513,11 +518,11 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
   for (const auto& [num, change] : container_seeds) {
     std::vector<uint32_t> members;
     if (change != EPDF_DIFF_FREED) {
-      members = ObjectStreamMembers(newer_view.get(), num);
+      members = ObjectStreamMembers(newer_view, num);
     }
     if (change != EPDF_DIFF_ADDED) {
       std::vector<uint32_t> old_members =
-          ObjectStreamMembers(older_view.get(), num);
+          ObjectStreamMembers(older_view, num);
       members.insert(members.end(), old_members.begin(), old_members.end());
     }
     for (uint32_t member : members) {
@@ -545,9 +550,9 @@ EPDFDoc_CompareRevisions(FPDF_DOCUMENT older_document,
   // identical-rewrite rule with evidence.
   RetainPtr<CPDF_Dictionary> older_trailer = older_parser->GetCombinedTrailer();
   RetainPtr<CPDF_Dictionary> newer_trailer = newer_parser->GetCombinedTrailer();
-  ReferrerIndexBuilder(older_view.get(), &result->referrers[EPDF_DIFF_OLD])
+  ReferrerIndexBuilder(older_view, &result->referrers[EPDF_DIFF_OLD])
       .Build(older_trailer.Get());
-  ReferrerIndexBuilder(newer_view.get(), &result->referrers[EPDF_DIFF_NEW])
+  ReferrerIndexBuilder(newer_view, &result->referrers[EPDF_DIFF_NEW])
       .Build(newer_trailer.Get());
 
   for (const auto& [num, change] : touched) {

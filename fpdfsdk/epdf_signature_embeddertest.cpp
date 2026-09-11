@@ -2088,3 +2088,232 @@ TEST_F(EPDFSignatureEmbedderTest, BaseSha256IsLazyAndCanBeSupplied) {
   EXPECT_FALSE(refused);
   EXPECT_EQ(EPDFLayerOpenStatus_kBaseLayerMismatch, open_status);
 }
+
+TEST_F(EPDFSignatureEmbedderTest, StructureObjectNumbers) {
+  RawPdf p = FormObjects();
+  ScopedFPDFDocument doc = OpenRaw(p);
+  ASSERT_TRUE(doc);
+  unsigned int root = 0;
+  unsigned int acroform = 0;
+  unsigned int pages = 0;
+  ASSERT_TRUE(EPDFDoc_GetStructureObjectNumbers(doc.get(), &root, &acroform, &pages));
+  EXPECT_EQ(1u, root);
+  EXPECT_EQ(0u, acroform);  // direct dictionary in the fixture
+  EXPECT_EQ(2u, pages);
+  // A revision prefix answers for itself; NULL out-params are fine.
+  ScopedFPDFDocument prefix(EPDFDoc_OpenRevision(doc.get(), p.bytes.size()));
+  ASSERT_TRUE(prefix);
+  ASSERT_TRUE(EPDFDoc_GetStructureObjectNumbers(prefix.get(), &root, nullptr, nullptr));
+  EXPECT_EQ(1u, root);
+  EXPECT_FALSE(EPDFDoc_GetStructureObjectNumbers(nullptr, &root, &acroform, &pages));
+  EXPECT_EQ(0u, root);
+}
+
+// ---------------------------------------------------------------------------
+// Base overlays and the cached revision view.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+int FindDiffEntryFor(EPDF_OBJECT_DIFF diff, unsigned int wanted) {
+  const int count = EPDFObjectDiff_GetCount(diff);
+  for (int i = 0; i < count; ++i) {
+    unsigned int num = 0;
+    int change = 0;
+    int kind = 0;
+    int old_gen = 0;
+    int new_gen = 0;
+    FPDF_BOOL stream = false;
+    if (EPDFObjectDiff_GetEntry(diff, i, &num, &change, &kind, &old_gen, &new_gen, &stream) &&
+        num == wanted) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+}  // namespace
+
+// The working copy of a layer is the BASE plus the cumulative delta a save
+// writes - never base + loaded delta + new delta, which would misplace every
+// offset. An overlay opens as one document whose revisions are the base's
+// plus exactly one, and that one replaces the loaded delta's revision.
+TEST_F(EPDFSignatureEmbedderTest, LayerBaseOverlayReplacesTheLoadedDelta) {
+  RawPdf p = TwoSignatureFields();
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument first = OpenLayer(base.get());
+  ASSERT_TRUE(first);
+  ScopedFPDFWideString v1 = GetFPDFWideString(L"first");
+  ASSERT_TRUE(EPDFForm_SetTextValue(first.get(), 6, v1.get(), nullptr, 0, nullptr));
+  const std::string delta1 = SaveDelta(first.get());
+  ASSERT_FALSE(delta1.empty());
+  ScopedFPDFDocument reopened = OpenLayer(base.get(), delta1);
+  ASSERT_TRUE(reopened);
+  ASSERT_EQ(2, EPDFDoc_GetRevisionCount(reopened.get()));
+  ScopedFPDFWideString v2 = GetFPDFWideString(L"second");
+  ASSERT_TRUE(EPDFForm_SetTextValue(reopened.get(), 6, v2.get(), nullptr, 0, nullptr));
+  const std::string delta2 = SaveDelta(reopened.get());
+  ASSERT_FALSE(delta2.empty());
+
+  ScopedFPDFDocument overlay(
+      EPDFDoc_OpenBaseOverlay(reopened.get(), delta2.data(), delta2.size()));
+  ASSERT_TRUE(overlay);
+  EXPECT_EQ(2, EPDFDoc_GetRevisionCount(overlay.get()));
+  unsigned long long end = 0;
+  unsigned long long xref = 0;
+  ASSERT_TRUE(EPDFDoc_GetRevision(overlay.get(), 1, &end, &xref));
+  EXPECT_EQ(p.bytes.size() + delta2.size(), end);
+  ASSERT_TRUE(EPDFDoc_GetRevision(overlay.get(), 0, &end, &xref));
+  EXPECT_EQ(p.bytes.size(), end);
+
+  // Base revision -> overlay: object 6 went from the base value to the
+  // SECOND value, read from the overlay's own bytes.
+  ScopedFPDFDocument older(EPDFDoc_OpenRevision(overlay.get(), end));
+  ASSERT_TRUE(older);
+  EPDF_OBJECT_DIFF diff = EPDFDoc_CompareRevisions(older.get(), overlay.get());
+  ASSERT_TRUE(diff);
+  const int index = FindDiffEntryFor(diff, 6);
+  ASSERT_GE(index, 0);
+  EXPECT_NE(std::string::npos, ReadDiffValue(diff, index, EPDF_DIFF_OLD).find("(before)"));
+  EXPECT_NE(std::string::npos, ReadDiffValue(diff, index, EPDF_DIFF_NEW).find("(second)"));
+  EXPECT_EQ(std::string::npos, ReadDiffValue(diff, index, EPDF_DIFF_NEW).find("(first)"));
+  EPDFObjectDiff_Close(diff);
+
+  // The layer itself is untouched: its loaded bytes still end with delta1.
+  EXPECT_EQ(p.bytes.size() + delta1.size(),
+            static_cast<size_t>(EPDFDoc_GetLoadedBytesSize(reopened.get())));
+
+  // Refused for a plain document and for an empty delta.
+  ScopedFPDFDocument plain = OpenBytes(p.bytes);
+  ASSERT_TRUE(plain);
+  EXPECT_FALSE(EPDFDoc_OpenBaseOverlay(plain.get(), delta2.data(), delta2.size()));
+  EXPECT_FALSE(EPDFDoc_OpenBaseOverlay(reopened.get(), delta2.data(), 0));
+}
+
+// The revision view is created once per document and cached on it: repeated
+// reads answer the same, prefixes opened from it compare (two clamps of one
+// stream take the identity shortcut), and the view survives the model.
+TEST_F(EPDFSignatureEmbedderTest, LayerRevisionReadsAreCachedAndStable) {
+  RawPdf p = TwoSignatureFields();
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument editing = OpenLayer(base.get());
+  ASSERT_TRUE(editing);
+  ScopedFPDFWideString v1 = GetFPDFWideString(L"edited");
+  ASSERT_TRUE(EPDFForm_SetTextValue(editing.get(), 6, v1.get(), nullptr, 0, nullptr));
+  const std::string delta = SaveDelta(editing.get());
+  ScopedFPDFDocument layer = OpenLayer(base.get(), delta);
+  ASSERT_TRUE(layer);
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_EQ(2, EPDFDoc_GetRevisionCount(layer.get()));
+  }
+  unsigned long long end0 = 0;
+  unsigned long long end1 = 0;
+  unsigned long long xref = 0;
+  ASSERT_TRUE(EPDFDoc_GetRevision(layer.get(), 0, &end0, &xref));
+  ASSERT_TRUE(EPDFDoc_GetRevision(layer.get(), 1, &end1, &xref));
+  ScopedFPDFDocument r0(EPDFDoc_OpenRevision(layer.get(), end0));
+  ScopedFPDFDocument r1(EPDFDoc_OpenRevision(layer.get(), end1));
+  ASSERT_TRUE(r0);
+  ASSERT_TRUE(r1);
+  EPDF_OBJECT_DIFF diff = EPDFDoc_CompareRevisions(r0.get(), r1.get());
+  ASSERT_TRUE(diff);
+  EXPECT_GE(FindDiffEntryFor(diff, 6), 0);
+  EPDFObjectDiff_Close(diff);
+  EPDF_SIGNATURE_MODEL model = EPDFSig_LoadModel(layer.get());
+  ASSERT_TRUE(model);
+  EXPECT_EQ(2, EPDFSig_Count(model));
+  EPDFSig_CloseModel(model);
+  EXPECT_EQ(2, EPDFDoc_GetRevisionCount(layer.get()));
+}
+
+// ---------------------------------------------------------------------------
+// File-backed candidate saves: the writer variant, the span seal and the
+// file digest agree byte for byte with the buffer variants.
+// ---------------------------------------------------------------------------
+
+TEST_F(EPDFSignatureEmbedderTest, FileCandidateSaveSealSpanAndFileDigestAgree) {
+  RawPdf p = FormObjects();
+  ScopedBase base(p.bytes);
+  ASSERT_TRUE(base.get());
+  ScopedFPDFDocument candidate = OpenLayer(base.get());
+  ASSERT_TRUE(candidate);
+  EPDF_SIG_PREPARE opts = DefaultPrepare();
+  const uint32_t value = EPDFSig_Prepare(candidate.get(), 6, &opts);
+  ASSERT_NE(0u, value);
+
+  // The buffer save.
+  unsigned long long size = 0;
+  unsigned long long off = 0;
+  unsigned long long len = 0;
+  void* raw = EPDFSig_SaveCandidateToOwnedBuffer(candidate.get(), value, &size, &off, &len);
+  ASSERT_TRUE(raw);
+  std::string buffered(static_cast<char*>(raw), static_cast<size_t>(size));
+  EPDF_FreeBuffer(raw);
+
+  // The writer save (this fixture collects FPDF_FILEWRITE output): the same
+  // size and object span. The bytes differ only in the fresh /ID each save
+  // draws, so the seal comparisons below run on ONE save.
+  ClearString();
+  unsigned long long fsize = 0;
+  unsigned long long foff = 0;
+  unsigned long long flen = 0;
+  ASSERT_TRUE(EPDFSig_SaveCandidate(candidate.get(), value, this, &fsize, &foff, &flen));
+  const std::string filed = GetString();
+  EXPECT_EQ(buffered.size(), static_cast<size_t>(fsize));
+  EXPECT_EQ(buffered.size(), filed.size());
+  EXPECT_EQ(off, foff);
+  EXPECT_EQ(len, flen);
+  EXPECT_NE(std::string::npos, filed.substr(static_cast<size_t>(foff), static_cast<size_t>(flen))
+                                    .find("/ByteRange[ 0 2147483647"));
+
+  // Whole-buffer seal versus span seal + file digest, on the buffered save.
+  std::vector<unsigned char> whole(buffered.begin(), buffered.end());
+  unsigned long long range[4] = {0, 0, 0, 0};
+  unsigned long long co = 0;
+  unsigned long long ch = 0;
+  unsigned char digest[64];
+  unsigned long dlen = sizeof(digest);
+  ASSERT_TRUE(EPDFSig_Seal(whole.data(), whole.size(), off, len, EPDF_DIGEST_SHA256, range, &co,
+                           &ch, digest, &dlen));
+
+  std::string patched = buffered;
+  std::vector<unsigned char> span(patched.begin() + static_cast<ptrdiff_t>(off),
+                                  patched.begin() + static_cast<ptrdiff_t>(off + len));
+  unsigned long long srange[4] = {0, 0, 0, 0};
+  unsigned long long sco = 0;
+  unsigned long long sch = 0;
+  ASSERT_TRUE(EPDFSig_SealSpan(span.data(), span.size(), off, patched.size(), srange, &sco, &sch));
+  for (int k = 0; k < 4; ++k) {
+    EXPECT_EQ(range[k], srange[k]) << "range[" << k << "]";
+  }
+  EXPECT_EQ(co, sco);
+  EXPECT_EQ(ch, sch);
+  std::copy(span.begin(), span.end(), patched.begin() + static_cast<ptrdiff_t>(off));
+  EXPECT_EQ(std::string(whole.begin(), whole.end()), patched);
+
+  FPDF_FILEACCESS access = {};
+  access.m_FileLen = static_cast<unsigned long>(patched.size());
+  access.m_Param = &patched;
+  access.m_GetBlock = [](void* param, unsigned long pos, unsigned char* out,
+                         unsigned long size) -> int {
+    const std::string& b = *static_cast<std::string*>(param);
+    if (pos > b.size() || size > b.size() - pos) {
+      return 0;
+    }
+    memcpy(out, b.data() + pos, size);
+    return 1;
+  };
+  unsigned char fdigest[64];
+  unsigned long fdlen = sizeof(fdigest);
+  ASSERT_TRUE(EPDFSig_DigestFileRange(&access, srange, EPDF_DIGEST_SHA256, fdigest, &fdlen));
+  EXPECT_EQ(dlen, fdlen);
+  EXPECT_EQ(0, memcmp(digest, fdigest, dlen));
+
+  // Sealing twice fails: the sentinel is gone.
+  EXPECT_FALSE(EPDFSig_SealSpan(span.data(), span.size(), off, patched.size(), srange, &sco, &sch));
+  // The digest refuses a range past the file.
+  unsigned long long bad[4] = {0, 10, static_cast<unsigned long long>(patched.size()), 10};
+  EXPECT_FALSE(EPDFSig_DigestFileRange(&access, bad, EPDF_DIGEST_SHA256, fdigest, &fdlen));
+}

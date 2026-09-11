@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 // NOLINTNEXTLINE(build/include)
+#include "fpdf_save.h"
 #include "fpdfview.h"
 
 #ifdef __cplusplus
@@ -64,6 +65,22 @@ EPDFDoc_GetRevision(FPDF_DOCUMENT document,
 // must not close the parent first.
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 EPDFDoc_OpenRevision(FPDF_DOCUMENT document, unsigned long long end);
+
+// Experimental EmbedPDF Extension API.
+// Open a LAYER document's immutable base bytes followed by |delta| as an
+// independent, read-only document: the bytes a save of the layer would
+// produce, given the cumulative delta EPDFLayer_SaveDelta() writes for it
+// (offsets notional from the base's append offset, /Prev into the base's
+// last cross-reference section). Zero-copy for the base bytes; |delta| is
+// copied. The result's revisions are the base's plus exactly one, which
+// REPLACES the layer's loaded delta rather than following it. Returns NULL
+// for a plain document (its bytes are not a frozen base), for an empty
+// delta, or when the composition does not parse. Close with
+// FPDF_CloseDocument(), independently of the layer, but not after it.
+FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
+EPDFDoc_OpenBaseOverlay(FPDF_DOCUMENT layer,
+                        const void* delta,
+                        unsigned long delta_len);
 
 // ---------------------------------------------------------------------------
 // Signature model.
@@ -471,6 +488,18 @@ FPDF_EXPORT unsigned long long FPDF_CALLCONV
 EPDFDoc_GetBaseBytesSize(FPDF_DOCUMENT document);
 
 // Experimental EmbedPDF Extension API.
+// The object numbers of the document's structural anchors, as the
+// revision analysis needs them to tell a catalog edit from a form edit:
+// the catalog (/Root), the /AcroForm dictionary and the /Pages root.
+// Each is 0 when absent or when the dictionary is a direct object. Every
+// out-param may be NULL. Returns FALSE when the document has no parser.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFDoc_GetStructureObjectNumbers(FPDF_DOCUMENT document,
+                                  unsigned int* out_root,
+                                  unsigned int* out_acroform,
+                                  unsigned int* out_pages);
+
+// Experimental EmbedPDF Extension API.
 // Copy |length| loaded bytes starting at |offset| into |buffer|. Returns
 // |length| on success, 0 when |buffer| is NULL or the range is not within
 // the loaded bytes.
@@ -585,6 +614,48 @@ EPDFSig_SaveCandidateToOwnedBuffer(FPDF_DOCUMENT candidate,
                                    unsigned long long* out_size,
                                    unsigned long long* out_obj_offset,
                                    unsigned long long* out_obj_len);
+
+// Experimental EmbedPDF Extension API.
+// EPDFSig_SaveCandidateToOwnedBuffer() through |file_write|: the base bytes
+// stream through the writer (never held in memory), the candidate's
+// revision follows. |out_size| is the total written; the object span is
+// reported as for the buffer variant. For file-backed signing: the caller
+// then seals the span in place with EPDFSig_SealSpan() and hashes the
+// file with EPDFSig_DigestFileRange().
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFSig_SaveCandidate(FPDF_DOCUMENT candidate,
+                      uint32_t sig_objnum,
+                      FPDF_FILEWRITE* file_write,
+                      unsigned long long* out_size,
+                      unsigned long long* out_obj_offset,
+                      unsigned long long* out_obj_len);
+
+// Experimental EmbedPDF Extension API.
+// The patching half of EPDFSig_Seal() on the object span alone: |span| holds
+// the |span_len| bytes of the signature value object that starts at file
+// offset |obj_offset| in a file of |file_length| bytes. Patches /ByteRange
+// in place and reports the range and the /Contents position (absolute file
+// offsets); hashes nothing. The caller writes the span back where it came
+// from — its length never changes — and digests with
+// EPDFSig_DigestFileRange().
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFSig_SealSpan(unsigned char* span,
+                 unsigned long long span_len,
+                 unsigned long long obj_offset,
+                 unsigned long long file_length,
+                 unsigned long long out_range[4],
+                 unsigned long long* out_contents_offset,
+                 unsigned long long* out_contents_hex_len);
+
+// Experimental EmbedPDF Extension API.
+// EPDFSig_DigestByteRange() over a file access instead of a document: the
+// two ranges are streamed through the digest. Same |inout_len| protocol.
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFSig_DigestFileRange(FPDF_FILEACCESS* file,
+                        const unsigned long long range[4],
+                        int algorithm,
+                        unsigned char* out_digest,
+                        unsigned long* inout_len);
 
 // Experimental EmbedPDF Extension API.
 // Locate the sentinel /ByteRange and the zero-filled /Contents inside

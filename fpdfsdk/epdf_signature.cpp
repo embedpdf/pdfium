@@ -27,7 +27,10 @@
 #include "core/fpdfapi/parser/cpdf_base_document.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_concat_read_stream.h"
 #include "core/fpdfapi/parser/cpdf_layer_document.h"
+#include "fpdfsdk/cpdfsdk_customaccess.h"
+#include "fpdfsdk/cpdfsdk_filewriteadapter.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
@@ -61,10 +64,7 @@ namespace {
 // Revisions.
 // ---------------------------------------------------------------------------
 
-struct RevisionInfo {
-  FX_FILESIZE end = 0;          // file offset just past the closing EOL
-  FX_FILESIZE xref_offset = 0;  // file offset of the section startxref names
-};
+using epdf::RevisionInfo;
 
 bool IsPdfWhitespace(uint8_t ch) {
   return ch == 0x00 || ch == 0x09 || ch == 0x0a || ch == 0x0c || ch == 0x0d ||
@@ -117,6 +117,21 @@ std::optional<FX_FILESIZE> ReadStartXRefBefore(IFX_SeekableReadStream* file,
     ++i;
   }
   return value;
+}
+
+std::optional<std::vector<RevisionInfo>> ComputeRevisions(CPDF_Parser* parser);
+
+// The revisions of |view|'s bytes, computed once per view and cached on it
+// (the bytes never change). A copy: callers index and iterate it locally.
+std::optional<std::vector<RevisionInfo>> RevisionsOf(epdf::RevisionView* view) {
+  if (!view) {
+    return std::nullopt;
+  }
+  if (!view->has_revisions()) {
+    CPDF_Parser* parser = view->parser();
+    view->set_revisions(ComputeRevisions(parser));
+  }
+  return view->revisions();
 }
 
 // The revisions of |parser|'s file, oldest first, or nullopt when the chain
@@ -221,6 +236,11 @@ class ClampedReadStream final : public IFX_SeekableReadStream {
     return inner_->ReadBlockAtOffset(buffer, offset);
   }
 
+  // A clamp changes no byte at any offset: it presents the wrapped stream.
+  IFX_SeekableReadStream* GetUnderlyingStream() override {
+    return inner_->GetUnderlyingStream();
+  }
+
  private:
   ClampedReadStream(RetainPtr<IFX_SeekableReadStream> inner, FX_FILESIZE size)
       : inner_(std::move(inner)), size_(size) {}
@@ -228,6 +248,35 @@ class ClampedReadStream final : public IFX_SeekableReadStream {
 
   RetainPtr<IFX_SeekableReadStream> inner_;
   const FX_FILESIZE size_;
+};
+
+// Bytes owned by the stream (a copy of the caller's buffer).
+class OwnedBytesReadStream final : public IFX_SeekableReadStream {
+ public:
+  CONSTRUCT_VIA_MAKE_RETAIN;
+
+  FX_FILESIZE GetSize() override {
+    return static_cast<FX_FILESIZE>(bytes_.size());
+  }
+
+  bool ReadBlockAtOffset(pdfium::span<uint8_t> buffer,
+                         FX_FILESIZE offset) override {
+    if (offset < 0 || static_cast<size_t>(offset) > bytes_.size() ||
+        buffer.size() > bytes_.size() - static_cast<size_t>(offset)) {
+      return false;
+    }
+    fxcrt::Copy(pdfium::span(bytes_).subspan(static_cast<size_t>(offset),
+                                             buffer.size()),
+                buffer);
+    return true;
+  }
+
+ private:
+  explicit OwnedBytesReadStream(DataVector<uint8_t> bytes)
+      : bytes_(std::move(bytes)) {}
+  ~OwnedBytesReadStream() override = default;
+
+  const DataVector<uint8_t> bytes_;
 };
 
 // Opens bytes [0, end) of |parser|'s file as an independent document with
@@ -1188,12 +1237,11 @@ bool HashRange(IFX_SeekableReadStream* file,
 FPDF_EXPORT int FPDF_CALLCONV
 EPDFDoc_GetRevisionCount(FPDF_DOCUMENT document) {
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   if (!view) {
     return -1;
   }
-  std::optional<std::vector<RevisionInfo>> revisions =
-      ComputeRevisions(view->parser());
+  std::optional<std::vector<RevisionInfo>> revisions = RevisionsOf(view);
   return revisions.has_value() ? fxcrt::CollectionSize<int>(*revisions) : -1;
 }
 
@@ -1209,12 +1257,11 @@ EPDFDoc_GetRevision(FPDF_DOCUMENT document,
     *out_xref_offset = 0;
   }
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   if (!view) {
     return false;
   }
-  std::optional<std::vector<RevisionInfo>> revisions =
-      ComputeRevisions(view->parser());
+  std::optional<std::vector<RevisionInfo>> revisions = RevisionsOf(view);
   if (!revisions.has_value() || index < 0 ||
       index >= fxcrt::CollectionSize<int>(*revisions)) {
     return false;
@@ -1232,12 +1279,12 @@ EPDFDoc_GetRevision(FPDF_DOCUMENT document,
 FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
 EPDFDoc_OpenRevision(FPDF_DOCUMENT document, unsigned long long end) {
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   if (!view) {
     return nullptr;
   }
   CPDF_Parser* parser = view->parser();
-  std::optional<std::vector<RevisionInfo>> revisions = ComputeRevisions(parser);
+  std::optional<std::vector<RevisionInfo>> revisions = RevisionsOf(view);
   if (!revisions.has_value()) {
     return nullptr;
   }
@@ -1255,6 +1302,44 @@ EPDFDoc_OpenRevision(FPDF_DOCUMENT document, unsigned long long end) {
     return nullptr;
   }
   return FPDFDocumentFromCPDFDocument(prefix.release());
+}
+
+FPDF_EXPORT FPDF_DOCUMENT FPDF_CALLCONV
+EPDFDoc_OpenBaseOverlay(FPDF_DOCUMENT document,
+                        const void* delta,
+                        unsigned long delta_len) {
+  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
+  const CPDF_LayerDocument* layer =
+      doc ? CPDF_LayerDocument::FromDocument(doc) : nullptr;
+  if (!layer || !delta || delta_len == 0) {
+    return nullptr;
+  }
+  // A layer's own parser is the BASE parser: its file access is the frozen
+  // base alone, which is exactly what a cumulative delta is relative to
+  // (never the base plus the loaded delta - that would misplace every offset
+  // the delta's cross-reference section declares).
+  CPDF_Parser* base_parser = doc->GetParser();
+  RetainPtr<IFX_SeekableReadStream> base =
+      base_parser ? base_parser->GetFileAccess() : nullptr;
+  if (!base) {
+    return nullptr;
+  }
+  // SAFETY: |delta_len| bytes at |delta|, required from the caller.
+  auto delta_span = UNSAFE_BUFFERS(
+      pdfium::span(static_cast<const uint8_t*>(delta), delta_len));
+  auto extra = pdfium::MakeRetain<OwnedBytesReadStream>(
+      DataVector<uint8_t>(delta_span.begin(), delta_span.end()));
+  auto bytes = pdfium::MakeRetain<CPDF_ConcatReadStream>(std::move(base),
+                                                         std::move(extra));
+  auto overlay = std::make_unique<CPDF_Document>(
+      std::make_unique<CPDF_DocRenderData>(),
+      std::make_unique<CPDF_DocPageData>());
+  if (overlay->LoadDoc(std::move(bytes), base_parser->GetPassword()) !=
+      CPDF_Parser::SUCCESS) {
+    ProcessParseError(CPDF_Parser::FORMAT_ERROR);
+    return nullptr;
+  }
+  return FPDFDocumentFromCPDFDocument(overlay.release());
 }
 
 // ---------------------------------------------------------------------------
@@ -1278,9 +1363,9 @@ std::unique_ptr<SignatureModel> BuildModel(CPDF_Document* doc) {
 
   // Identity, locks and seed values come from the document as it is; the
   // byte facts (revisions, coverage) from the bytes it was loaded from.
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   CPDF_Parser* parser = view ? view->parser() : nullptr;
-  std::optional<std::vector<RevisionInfo>> revisions = ComputeRevisions(parser);
+  std::optional<std::vector<RevisionInfo>> revisions = RevisionsOf(view);
   model->chain_valid = revisions.has_value();
   RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
 
@@ -1583,11 +1668,47 @@ EPDFSig_DigestByteRange(FPDF_DOCUMENT document,
     return false;
   }
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
   if (!file) {
     return false;
   }
+  // SAFETY: caller provides four slots.
+  auto r = UNSAFE_BUFFERS(pdfium::span(range, 4u));
+  const uint64_t file_size = static_cast<uint64_t>(file->GetSize());
+  if (r[1] > file_size || r[0] > file_size - r[1] || r[3] > file_size ||
+      r[2] > file_size - r[3] || r[0] + r[1] > r[2]) {
+    return false;
+  }
+  Hasher hasher(algorithm);
+  if (!HashRange(file.Get(), r[0], r[1], &hasher) ||
+      !HashRange(file.Get(), r[2], r[3], &hasher)) {
+    return false;
+  }
+  // SAFETY: capacity checked above.
+  hasher.Finish(UNSAFE_BUFFERS(pdfium::span(out_digest, digest_size.value())));
+  *inout_len = static_cast<unsigned long>(digest_size.value());
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFSig_DigestFileRange(FPDF_FILEACCESS* file_access,
+                        const unsigned long long range[4],
+                        int algorithm,
+                        unsigned char* out_digest,
+                        unsigned long* inout_len) {
+  if (!file_access || !range || !inout_len) {
+    return false;
+  }
+  std::optional<size_t> digest_size = Hasher::DigestSize(algorithm);
+  if (!digest_size.has_value()) {
+    return false;
+  }
+  if (!out_digest || *inout_len < digest_size.value()) {
+    *inout_len = static_cast<unsigned long>(digest_size.value());
+    return false;
+  }
+  auto file = pdfium::MakeRetain<CPDFSDK_CustomAccess>(file_access);
   // SAFETY: caller provides four slots.
   auto r = UNSAFE_BUFFERS(pdfium::span(range, 4u));
   const uint64_t file_size = static_cast<uint64_t>(file->GetSize());
@@ -1613,7 +1734,7 @@ EPDFSig_DigestByteRange(FPDF_DOCUMENT document,
 FPDF_EXPORT unsigned long long FPDF_CALLCONV
 EPDFDoc_GetLoadedBytesSize(FPDF_DOCUMENT document) {
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
   if (!file) {
     return 0;
@@ -1632,6 +1753,42 @@ EPDFDoc_GetBaseBytesSize(FPDF_DOCUMENT document) {
   return EPDFDoc_GetLoadedBytesSize(document);
 }
 
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFDoc_GetStructureObjectNumbers(FPDF_DOCUMENT document,
+                                  unsigned int* out_root,
+                                  unsigned int* out_acroform,
+                                  unsigned int* out_pages) {
+  if (out_root) {
+    *out_root = 0;
+  }
+  if (out_acroform) {
+    *out_acroform = 0;
+  }
+  if (out_pages) {
+    *out_pages = 0;
+  }
+  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
+  CPDF_Parser* parser = doc ? doc->GetParser() : nullptr;
+  if (!parser) {
+    return false;
+  }
+  const CPDF_Dictionary* root = doc->GetRoot();
+  if (out_root) {
+    *out_root = parser->GetRootObjNum();
+  }
+  if (root) {
+    if (out_acroform) {
+      RetainPtr<const CPDF_Dictionary> acroform = root->GetDictFor("AcroForm");
+      *out_acroform = acroform ? acroform->GetObjNum() : 0;
+    }
+    if (out_pages) {
+      RetainPtr<const CPDF_Dictionary> pages = root->GetDictFor("Pages");
+      *out_pages = pages ? pages->GetObjNum() : 0;
+    }
+  }
+  return true;
+}
+
 FPDF_EXPORT unsigned long FPDF_CALLCONV
 EPDFDoc_ReadLoadedBytes(FPDF_DOCUMENT document,
                         unsigned long long offset,
@@ -1641,7 +1798,7 @@ EPDFDoc_ReadLoadedBytes(FPDF_DOCUMENT document,
     return 0;
   }
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
-  std::unique_ptr<epdf::RevisionView> view = epdf::RevisionView::Create(doc);
+  epdf::RevisionView* view = epdf::RevisionView::For(doc);
   RetainPtr<IFX_SeekableReadStream> file = view ? view->file() : nullptr;
   if (!file || file->GetSize() < 0) {
     return 0;
@@ -1899,6 +2056,85 @@ class OwnedBufferWriteStream final : public IFX_RetainableWriteStream {
   DataVector<uint8_t> data_;
 };
 
+// Counts the bytes that pass through to |inner|: a file writer reports no
+// size of its own, and the candidate's object span must lie within it.
+class CountingWriteStream final : public IFX_RetainableWriteStream {
+ public:
+  CONSTRUCT_VIA_MAKE_RETAIN;
+
+  bool WriteBlock(pdfium::span<const uint8_t> data) override {
+    if (!inner_->WriteBlock(data)) {
+      return false;
+    }
+    written_ += data.size();
+    return true;
+  }
+
+  uint64_t written() const { return written_; }
+
+ private:
+  explicit CountingWriteStream(RetainPtr<IFX_RetainableWriteStream> inner)
+      : inner_(std::move(inner)) {}
+  ~CountingWriteStream() override = default;
+
+  RetainPtr<IFX_RetainableWriteStream> inner_;
+  uint64_t written_ = 0;
+};
+
+// Where the serializer wrote the signature value object: [obj_offset,
+// obj_end) in the saved bytes.
+struct CandidateSpan {
+  FX_FILESIZE obj_offset = 0;
+  FX_FILESIZE obj_end = 0;
+};
+
+// An incremental save of |doc| through |archive| (the base bytes stream
+// through it, the candidate's revision follows), reporting the span object
+// |sig_objnum| landed in. Shared by the buffer and file candidate saves.
+bool SaveCandidateThrough(CPDF_Document* doc,
+                          uint32_t sig_objnum,
+                          RetainPtr<IFX_RetainableWriteStream> archive,
+                          CandidateSpan* out_span) {
+  std::map<uint32_t, FX_FILESIZE> offsets;
+  FX_FILESIZE xref_start = 0;
+  {
+    // The creator buffers through its own archive and flushes on
+    // destruction; the offsets are copied out before that.
+    CPDF_Creator creator(doc, std::move(archive));
+    if (const CPDF_Document::PendingSecurity* pending =
+            doc->GetPendingSecurity()) {
+      if (pending->mode == CPDF_Document::PendingSecurityMode::kEncrypt) {
+        creator.SetEncryption(pending->encrypt_dict, pending->security_handler);
+      } else if (pending->mode == CPDF_Document::PendingSecurityMode::kRemove) {
+        return false;  // removing security is a rewrite, never a signing save
+      }
+    }
+    if (!creator.Create(
+            Mask<CPDF_Creator::CreateFlags>{CPDF_Creator::kIncremental}, 0)) {
+      return false;
+    }
+    offsets = creator.object_offsets();
+    xref_start = creator.xref_start();
+  }
+  const auto it = offsets.find(sig_objnum);
+  if (it == offsets.end() || it->second <= 0) {
+    return false;
+  }
+  const FX_FILESIZE obj_offset = it->second;
+  FX_FILESIZE obj_end = xref_start;
+  for (const auto& [num, offset] : offsets) {
+    if (offset > obj_offset && offset < obj_end) {
+      obj_end = offset;
+    }
+  }
+  if (obj_end <= obj_offset) {
+    return false;
+  }
+  out_span->obj_offset = obj_offset;
+  out_span->obj_end = obj_end;
+  return true;
+}
+
 bool SpanStartsWith(pdfium::span<const uint8_t> haystack,
                     size_t at,
                     const char* needle) {
@@ -1952,6 +2188,7 @@ EPDFSig_Prepare(FPDF_DOCUMENT candidate,
   if (record.is_signed || record.value_objnum != 0) {
     return 0;
   }
+  const bool any_signed = AnySigned(*model);
   // Saving a layer candidate appends an update to its BASE bytes and
   // rewrites the layer's objects into it; signed bytes that live in the
   // layer's loaded delta would not survive that. They must become a base
@@ -2157,8 +2394,13 @@ EPDFSig_Prepare(FPDF_DOCUMENT candidate,
 
   mutable_field->SetNewFor<CPDF_Reference>(pdfium::form_fields::kV, doc,
                                            value->GetObjNum());
-  if (!field_has_lock && (fieldmdp_action != EPDF_SIG_FIELD_ACTION_NONE ||
-                          lock_permission != 0)) {
+  // The /Lock mirror is authoring-time metadata, written only while no
+  // signature is in place. Once one is, adding a key to an existing field
+  // dictionary is a change no earlier signature permits (pyHanko and
+  // Acrobat reject it); the FieldMDP transform above carries the lock.
+  if (!field_has_lock && !any_signed &&
+      (fieldmdp_action != EPDF_SIG_FIELD_ACTION_NONE ||
+       lock_permission != 0)) {
     RetainPtr<CPDF_Dictionary> lock = MakeLockDict(
         doc,
         fieldmdp_action != EPDF_SIG_FIELD_ACTION_NONE
@@ -2244,41 +2486,12 @@ EPDFSig_SaveCandidateToOwnedBuffer(FPDF_DOCUMENT candidate,
     return nullptr;
   }
   auto writer = pdfium::MakeRetain<OwnedBufferWriteStream>();
-  std::map<uint32_t, FX_FILESIZE> offsets;
-  FX_FILESIZE xref_start = 0;
-  {
-    // The creator buffers through its own archive and flushes on
-    // destruction; the offsets are copied out before that.
-    CPDF_Creator creator(doc, writer);
-    if (const CPDF_Document::PendingSecurity* pending =
-            doc->GetPendingSecurity()) {
-      if (pending->mode == CPDF_Document::PendingSecurityMode::kEncrypt) {
-        creator.SetEncryption(pending->encrypt_dict, pending->security_handler);
-      } else if (pending->mode == CPDF_Document::PendingSecurityMode::kRemove) {
-        return nullptr;  // removing security is a rewrite, never a signing save
-      }
-    }
-    if (!creator.Create(
-            Mask<CPDF_Creator::CreateFlags>{CPDF_Creator::kIncremental}, 0)) {
-      return nullptr;
-    }
-    offsets = creator.object_offsets();
-    xref_start = creator.xref_start();
-  }
-  const auto it = offsets.find(sig_objnum);
-  if (it == offsets.end() || it->second <= 0) {
+  CandidateSpan span;
+  if (!SaveCandidateThrough(doc, sig_objnum, writer, &span)) {
     return nullptr;
   }
-  const FX_FILESIZE obj_offset = it->second;
-  FX_FILESIZE obj_end = xref_start;
-  for (const auto& [num, offset] : offsets) {
-    if (offset > obj_offset && offset < obj_end) {
-      obj_end = offset;
-    }
-  }
   const DataVector<uint8_t>& data = writer->data();
-  if (obj_end <= obj_offset ||
-      static_cast<size_t>(obj_end) > data.size()) {
+  if (static_cast<size_t>(span.obj_end) > data.size()) {
     return nullptr;
   }
   // malloc so EPDF_FreeBuffer() (free) releases it.
@@ -2288,10 +2501,128 @@ EPDFSig_SaveCandidateToOwnedBuffer(FPDF_DOCUMENT candidate,
   }
   memcpy(buffer, data.data(), data.size());
   *out_size = data.size();
-  *out_obj_offset = static_cast<unsigned long long>(obj_offset);
-  *out_obj_len = static_cast<unsigned long long>(obj_end - obj_offset);
+  *out_obj_offset = static_cast<unsigned long long>(span.obj_offset);
+  *out_obj_len = static_cast<unsigned long long>(span.obj_end - span.obj_offset);
   return buffer;
 }
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFSig_SaveCandidate(FPDF_DOCUMENT candidate,
+                      uint32_t sig_objnum,
+                      FPDF_FILEWRITE* file_write,
+                      unsigned long long* out_size,
+                      unsigned long long* out_obj_offset,
+                      unsigned long long* out_obj_len) {
+  if (out_size) {
+    *out_size = 0;
+  }
+  if (out_obj_offset) {
+    *out_obj_offset = 0;
+  }
+  if (out_obj_len) {
+    *out_obj_len = 0;
+  }
+  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(candidate);
+  if (!doc || sig_objnum == 0 || !file_write || !out_size || !out_obj_offset ||
+      !out_obj_len) {
+    return false;
+  }
+  auto writer = pdfium::MakeRetain<CountingWriteStream>(
+      pdfium::MakeRetain<CPDFSDK_FileWriteAdapter>(file_write));
+  CandidateSpan span;
+  if (!SaveCandidateThrough(doc, sig_objnum, writer, &span)) {
+    return false;
+  }
+  const uint64_t size = writer->written();
+  if (static_cast<uint64_t>(span.obj_end) > size) {
+    return false;
+  }
+  *out_size = size;
+  *out_obj_offset = static_cast<unsigned long long>(span.obj_offset);
+  *out_obj_len = static_cast<unsigned long long>(span.obj_end - span.obj_offset);
+  return true;
+}
+
+namespace {
+
+// What sealing a candidate decided: the /ByteRange it patched in and where
+// the zero-filled /Contents hex lives, all as absolute file offsets.
+struct SealPlan {
+  uint64_t r1 = 0;               // bytes [0, r1) precede '<'
+  uint64_t r2 = 0;               // bytes [r2, r2 + r3) follow '>'
+  uint64_t r3 = 0;
+  uint64_t contents_offset = 0;  // first hex digit
+  uint64_t hex_len = 0;
+};
+
+// Locate the sentinel /ByteRange and the zero-filled /Contents in |object|
+// (the signature value object, starting at file offset |obj_offset| in a
+// file of |file_length| bytes) and patch the real range in place. Shared by
+// the whole-buffer seal and the span seal; hashes nothing.
+std::optional<SealPlan> PatchSealPlaceholders(pdfium::span<uint8_t> object,
+                                              uint64_t obj_offset,
+                                              uint64_t file_length) {
+  // Scan the object as PDF syntax: the placeholders are the top-level
+  // /ByteRange and /Contents entries, never the same text inside a string
+  // value such as /ContactInfo.
+  std::optional<size_t> dict = pdfscan::FindObjectDictionary(object);
+  if (!dict.has_value()) {
+    return std::nullopt;
+  }
+  std::optional<std::pair<size_t, size_t>> range_value =
+      pdfscan::FindEntry(object, dict.value(), "ByteRange");
+  std::optional<std::pair<size_t, size_t>> contents_value =
+      pdfscan::FindEntry(object, dict.value(), "Contents");
+  if (!range_value.has_value() || !contents_value.has_value()) {
+    return std::nullopt;
+  }
+  // The sentinel array body, exactly as the serializer wrote it.
+  const size_t body_start = range_value->first + 1;
+  const size_t body_len = strlen(kSentinelBody);
+  if (object[range_value->first] != '[' ||
+      range_value->second != body_start + body_len + 1 ||
+      !SpanStartsWith(object, body_start, kSentinelBody) ||
+      object[body_start + body_len] != ']') {
+    return std::nullopt;
+  }
+  // The zero-filled hex string.
+  const size_t hex_start = contents_value->first + 1;
+  if (object[contents_value->first] != '<' ||
+      contents_value->second < hex_start + 3 ||
+      object[contents_value->second - 1] != '>') {
+    return std::nullopt;
+  }
+  const size_t hex_len = contents_value->second - 1 - hex_start;
+  if (hex_len % 2 != 0) {
+    return std::nullopt;
+  }
+  for (size_t i = 0; i < hex_len; ++i) {
+    if (object[hex_start + i] != '0') {
+      return std::nullopt;
+    }
+  }
+
+  SealPlan plan;
+  plan.contents_offset = obj_offset + hex_start;
+  plan.r1 = plan.contents_offset - 1;              // up to '<'
+  plan.r2 = plan.contents_offset + hex_len + 1;    // past '>'
+  if (plan.r2 > file_length) {
+    return std::nullopt;
+  }
+  plan.r3 = file_length - plan.r2;
+  plan.hex_len = hex_len;
+  const ByteString patched =
+      ByteString::Format("0 %llu %llu %llu", plan.r1, plan.r2, plan.r3);
+  if (patched.GetLength() > body_len) {
+    return std::nullopt;
+  }
+  auto body = object.subspan(body_start, body_len);
+  std::fill(body.begin(), body.end(), ' ');
+  std::copy(patched.span().begin(), patched.span().end(), body.begin());
+  return plan;
+}
+
+}  // namespace
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 EPDFSig_Seal(unsigned char* buffer,
@@ -2320,63 +2651,14 @@ EPDFSig_Seal(unsigned char* buffer,
   auto file = UNSAFE_BUFFERS(pdfium::span(buffer, static_cast<size_t>(length)));
   auto object = file.subspan(static_cast<size_t>(obj_offset),
                              static_cast<size_t>(obj_len));
-
-  // Scan the object as PDF syntax: the placeholders are the top-level
-  // /ByteRange and /Contents entries, never the same text inside a string
-  // value such as /ContactInfo.
-  std::optional<size_t> dict = pdfscan::FindObjectDictionary(object);
-  if (!dict.has_value()) {
+  std::optional<SealPlan> plan = PatchSealPlaceholders(object, obj_offset, length);
+  if (!plan.has_value()) {
     return false;
   }
-  std::optional<std::pair<size_t, size_t>> range_value =
-      pdfscan::FindEntry(object, dict.value(), "ByteRange");
-  std::optional<std::pair<size_t, size_t>> contents_value =
-      pdfscan::FindEntry(object, dict.value(), "Contents");
-  if (!range_value.has_value() || !contents_value.has_value()) {
-    return false;
-  }
-  // The sentinel array body, exactly as the serializer wrote it.
-  const size_t body_start = range_value->first + 1;
-  const size_t body_len = strlen(kSentinelBody);
-  if (object[range_value->first] != '[' ||
-      range_value->second != body_start + body_len + 1 ||
-      !SpanStartsWith(object, body_start, kSentinelBody) ||
-      object[body_start + body_len] != ']') {
-    return false;
-  }
-  // The zero-filled hex string.
-  const size_t hex_start = contents_value->first + 1;
-  if (object[contents_value->first] != '<' ||
-      contents_value->second < hex_start + 3 ||
-      object[contents_value->second - 1] != '>') {
-    return false;
-  }
-  const size_t hex_len = contents_value->second - 1 - hex_start;
-  if (hex_len % 2 != 0) {
-    return false;
-  }
-  for (size_t i = 0; i < hex_len; ++i) {
-    if (object[hex_start + i] != '0') {
-      return false;
-    }
-  }
-
-  const unsigned long long contents_offset = obj_offset + hex_start;
-  const unsigned long long r1 = contents_offset - 1;      // up to '<'
-  const unsigned long long r2 = contents_offset + hex_len + 1;  // past '>'
-  const unsigned long long r3 = length - r2;
-  const ByteString patched =
-      ByteString::Format("0 %llu %llu %llu", r1, r2, r3);
-  if (patched.GetLength() > body_len) {
-    return false;
-  }
-  auto body = object.subspan(body_start, body_len);
-  std::fill(body.begin(), body.end(), ' ');
-  std::copy(patched.span().begin(), patched.span().end(), body.begin());
 
   Hasher hasher(algorithm);
-  hasher.Update(file.first(static_cast<size_t>(r1)));
-  hasher.Update(file.subspan(static_cast<size_t>(r2)));
+  hasher.Update(file.first(static_cast<size_t>(plan->r1)));
+  hasher.Update(file.subspan(static_cast<size_t>(plan->r2)));
   // SAFETY: capacity checked above.
   hasher.Finish(UNSAFE_BUFFERS(pdfium::span(out_digest, digest_size.value())));
   *inout_len = static_cast<unsigned long>(digest_size.value());
@@ -2384,11 +2666,42 @@ EPDFSig_Seal(unsigned char* buffer,
   // SAFETY: caller provides four slots.
   auto range = UNSAFE_BUFFERS(pdfium::span(out_range, 4u));
   range[0] = 0;
-  range[1] = r1;
-  range[2] = r2;
-  range[3] = r3;
-  *out_contents_offset = contents_offset;
-  *out_contents_hex_len = hex_len;
+  range[1] = plan->r1;
+  range[2] = plan->r2;
+  range[3] = plan->r3;
+  *out_contents_offset = plan->contents_offset;
+  *out_contents_hex_len = plan->hex_len;
+  return true;
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFSig_SealSpan(unsigned char* span,
+                 unsigned long long span_len,
+                 unsigned long long obj_offset,
+                 unsigned long long file_length,
+                 unsigned long long out_range[4],
+                 unsigned long long* out_contents_offset,
+                 unsigned long long* out_contents_hex_len) {
+  if (!span || !out_range || !out_contents_offset || !out_contents_hex_len ||
+      obj_offset >= file_length || span_len > file_length - obj_offset) {
+    return false;
+  }
+  // SAFETY: caller provides |span_len| bytes.
+  auto object =
+      UNSAFE_BUFFERS(pdfium::span(span, static_cast<size_t>(span_len)));
+  std::optional<SealPlan> plan =
+      PatchSealPlaceholders(object, obj_offset, file_length);
+  if (!plan.has_value()) {
+    return false;
+  }
+  // SAFETY: caller provides four slots.
+  auto range = UNSAFE_BUFFERS(pdfium::span(out_range, 4u));
+  range[0] = 0;
+  range[1] = plan->r1;
+  range[2] = plan->r2;
+  range[3] = plan->r3;
+  *out_contents_offset = plan->contents_offset;
+  *out_contents_hex_len = plan->hex_len;
   return true;
 }
 
