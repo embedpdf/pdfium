@@ -2997,6 +2997,12 @@ EPDFForm_AttachWidget(FPDF_DOCUMENT document,
   }
   mutable_widget->SetNewFor<CPDF_Reference>(pdfium::form_fields::kParent, doc,
                                             field_objnum);
+  // A widget without /F has no Print flag: viewers show it and printers
+  // drop it. A freshly authored widget prints, as Acrobat's do (/F 4).
+  if (!mutable_widget->KeyExist("F")) {
+    mutable_widget->SetNewFor<CPDF_Number>(
+        "F", static_cast<int>(pdfium::annotation_flags::kPrint));
+  }
   RetainPtr<CPDF_Array> kids = GetMutableArrayMember(
       doc, mutable_field.Get(), pdfium::form_fields::kKids);
   if (!kids) {
