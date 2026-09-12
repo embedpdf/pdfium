@@ -64,6 +64,11 @@ class CPDF_IndirectObjectHolder {
 
   uint32_t GetLastObjNum() const { return last_obj_num_; }
   void SetLastObjNum(uint32_t objnum) { last_obj_num_ = objnum; }
+  // Freeze every cached object and refuse mutation from here on (adding,
+  // replacing, deleting, promoting). Parsing stays open: an object the
+  // parser produces later from the same immutable bytes enters the cache
+  // frozen. That is what lets a base document parse on first touch instead
+  // of walking its whole reachable graph at load.
   void Freeze();
   bool IsHolderFrozen() const { return frozen_; }
 

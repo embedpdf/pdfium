@@ -107,6 +107,18 @@ class CPDF_Document : public Observable,
     extension_ = std::move(pExt);
   }
 
+  // EmbedPDF: an opaque cache an SDK layer attaches to this document for its
+  // lifetime. The bytes a document was loaded from never change, so nothing
+  // invalidates it; it is destroyed before the parser it may refer to.
+  class Attachment {
+   public:
+    virtual ~Attachment() = default;
+  };
+  Attachment* epdf_attachment() const { return epdf_attachment_.get(); }
+  void SetEpdfAttachment(std::unique_ptr<Attachment> attachment) {
+    epdf_attachment_ = std::move(attachment);
+  }
+
   virtual CPDF_Parser* GetParser() const;
   virtual const CPDF_Dictionary* GetRoot() const;
   virtual RetainPtr<CPDF_Dictionary> GetMutableRoot();
@@ -281,6 +293,10 @@ class CPDF_Document : public Observable,
   std::set<uint32_t> modified_apstream_ids_;
   std::optional<PendingSecurity> pending_security_;
   std::vector<uint32_t> page_list_;  // Page number to page's dict objnum.
+
+  // EmbedPDF: destroyed before everything declared above it (the parser
+  // included), after the extension and the stock font clearer.
+  std::unique_ptr<Attachment> epdf_attachment_;
 
   // Must be second to last.
   StockFontClearer stock_font_clearer_;

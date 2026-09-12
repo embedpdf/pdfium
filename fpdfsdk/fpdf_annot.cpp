@@ -4006,7 +4006,11 @@ EPDFAnnot_UpdateAppearanceToRect(FPDF_ANNOTATION annot, EPDF_STAMP_FIT fit) {
     return false;
   }
 
-  if (FPDFAnnot_GetSubtype(annot) != FPDF_ANNOT_STAMP) {
+  // Stamps, and widgets whose appearance is an imported page (a signature
+  // field's mark via EPDFAnnot_SetAppearanceFromPage): both are one wrapped
+  // form to place inside /Rect.
+  const FPDF_ANNOTATION_SUBTYPE subtype = FPDFAnnot_GetSubtype(annot);
+  if (subtype != FPDF_ANNOT_STAMP && subtype != FPDF_ANNOT_WIDGET) {
     return false;
   }
 
@@ -4424,6 +4428,17 @@ EPDFAnnot_SetAppearanceFromPage(FPDF_ANNOTATION annot,
     if (!WrapAPContentIntoFormXObject(cloned_stream.Get(), dest_doc)) {
       return false;
     }
+
+    // The page's content and resources now live in the child form; the
+    // outer stream's job is to PLACE it. Write that placement (identity:
+    // the outer BBox is the page's own box, so the viewer's BBox→/Rect
+    // mapping scales it) instead of leaving the page's original content
+    // behind — that content names resources that are no longer here and
+    // draws nothing. A caller wanting a uniform fit into the annotation's
+    // rect rewrites this through EPDFAnnot_UpdateAppearanceToRect.
+    fxcrt::ostringstream buf;
+    buf << "q 1 0 0 1 0 0 cm /EPDFWRAP Do Q";
+    cloned_stream->SetDataFromStringstreamAndRemoveFilter(&buf);
   }
 
   // Set cloned stream as AP/N on the annotation.

@@ -363,9 +363,19 @@ EPDFLayer_OpenLayer(EPDF_BASE_DOCUMENT base,
   // already complete when the base is loaded.
   (void)password;
 
-  RetainPtr<IFX_SeekableReadStream> delta_stream =
-      pFileAccess ? pdfium::MakeRetain<CPDFSDK_CustomAccess>(pFileAccess)
-                  : nullptr;
+  // The layer retains the delta it ingests as part of its loaded bytes, and
+  // |pFileAccess| is only promised for the duration of this call: copy it.
+  RetainPtr<IFX_SeekableReadStream> delta_stream;
+  if (pFileAccess && pFileAccess->m_FileLen > 0) {
+    auto caller_stream = pdfium::MakeRetain<CPDFSDK_CustomAccess>(pFileAccess);
+    DataVector<uint8_t> delta = ReadStreamToVector(caller_stream.Get());
+    if (delta.empty()) {
+      SetOpenStatus(out_status, EPDFLayerOpenStatus_kOpenFailed);
+      return nullptr;
+    }
+    delta_stream =
+        pdfium::MakeRetain<OwnedReadOnlyMemoryStream>(std::move(delta));
+  }
   return OpenLayerWithDeltaStream(base, std::move(delta_stream), out_status);
 }
 
@@ -479,6 +489,35 @@ EPDFLayer_GetBaseDocument(FPDF_DOCUMENT layer) {
   return layer_doc ? EPDFBaseDocumentFromCPDFBaseDocument(
                          layer_doc->GetBaseDocument())
                    : nullptr;
+}
+
+FPDF_EXPORT void FPDF_CALLCONV
+EPDF_SetBaseDocumentSha256(EPDF_BASE_DOCUMENT base,
+                           const unsigned char* sha256) {
+  CPDF_BaseDocument* base_doc = CPDFBaseDocumentFromEPDFBaseDocument(base);
+  if (!base_doc || !sha256) {
+    return;
+  }
+  std::array<uint8_t, kSha256DigestSize> digest;
+  // SAFETY: the caller provides 32 bytes.
+  auto in = UNSAFE_BUFFERS(pdfium::span(sha256, kSha256DigestSize));
+  std::copy(in.begin(), in.end(), digest.begin());
+  base_doc->SetKnownRawBaseSha256(digest);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+EPDFLayer_GetBaseSha256(FPDF_DOCUMENT layer, unsigned char* out_sha256) {
+  CPDF_Document* document = CPDFDocumentFromFPDFDocument(layer);
+  CPDF_LayerDocument* layer_doc = CPDF_LayerDocument::FromDocument(document);
+  if (!layer_doc || !out_sha256) {
+    return false;
+  }
+  const std::array<uint8_t, kSha256DigestSize>& sha =
+      layer_doc->GetBaseDocument()->GetRawBaseSha256();
+  // SAFETY: the caller provides 32 bytes.
+  auto out = UNSAFE_BUFFERS(pdfium::span(out_sha256, kSha256DigestSize));
+  std::copy(sha.begin(), sha.end(), out.begin());
+  return true;
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV

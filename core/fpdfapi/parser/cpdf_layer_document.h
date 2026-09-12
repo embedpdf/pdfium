@@ -10,10 +10,10 @@
 #include <vector>
 
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/retain_ptr.h"
 
 class CPDF_BaseDocument;
-class IFX_SeekableReadStream;
 
 class CPDF_LayerDocument final : public CPDF_Document {
  public:
@@ -24,6 +24,11 @@ class CPDF_LayerDocument final : public CPDF_Document {
     kOpenFailed,
   };
 
+  // |file_access| is the raw delta to ingest (null or empty for a fresh
+  // layer). A successfully ingested delta is retained for the life of the
+  // layer as its loaded bytes (see GetLoadedDeltaStream()), so the stream
+  // must stay readable and unchanged for that long: pass an owned copy, not
+  // a view of caller memory.
   CPDF_LayerDocument(RetainPtr<CPDF_BaseDocument> base,
                      RetainPtr<IFX_SeekableReadStream> file_access);
   ~CPDF_LayerDocument() override;
@@ -35,6 +40,15 @@ class CPDF_LayerDocument final : public CPDF_Document {
   size_t GetPromotedObjectCount() const;
   bool HasPromotedObjects() const { return begin() != end(); }
   CPDF_BaseDocument* GetBaseDocument() const { return base_.Get(); }
+
+  // The delta this layer ingested at open time, or null when it was opened
+  // fresh. Together with the base file these are the bytes the layer was
+  // loaded from - the only bytes revision analysis may read, because the
+  // parser this document reports is the base parser and the promoted
+  // objects are in-memory clones. Unsaved edits are not part of it.
+  RetainPtr<IFX_SeekableReadStream> GetLoadedDeltaStream() const {
+    return loaded_delta_;
+  }
 
   // CPDF_Document:
   CPDF_Parser* GetParser() const override;
@@ -76,6 +90,7 @@ class CPDF_LayerDocument final : public CPDF_Document {
 
   RetainPtr<CPDF_BaseDocument> const base_;
   RetainPtr<IFX_SeekableReadStream> file_access_;
+  RetainPtr<IFX_SeekableReadStream> loaded_delta_;
   std::vector<uint32_t> layer_page_list_;
   // Generation for caches that retain effective-object pointers.
   uint64_t overlay_epoch_ = 0;
